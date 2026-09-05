@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accessibility Inspector fixture — known findings</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fff;
+        color: #1f2937;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: auto;
+        padding: 48px 24px 120px;
+      }
+      .low-contrast {
+        padding: 20px;
+        background: #eee;
+        color: #ddd;
+      }
+      .manual-contrast {
+        padding: 20px;
+        color: #777;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath fill='%23eee' d='M0 0h10v10H0z'/%3E%3C/svg%3E");
+      }
+      .spacer {
+        height: 900px;
+        border-left: 1px dashed #a1a1aa;
+      }
+      img {
+        width: 220px;
+        height: 120px;
+        object-fit: cover;
+        background: #e5e7eb;
+      }
+    </style>
+  </head>
+  <body
+    data-expected-violations="image-alt label color-contrast aria-allowed-attr"
+    data-expected-review="color-contrast"
+  >
+    <main>
+      <h1>Known accessibility findings</h1>
+      <p>
+        This fixture deliberately contains stable failures for extension smoke
+        tests.
+      </p>
+      <form>
+        <p>Account lookup</p>
+        <input id="unlabelled-name" type="text" />
+      </form>
+      <p class="low-contrast">
+        This text intentionally has insufficient contrast.
+      </p>
+      <p class="manual-contrast">
+        This background image makes contrast require review.
+      </p>
+      <div role="button" aria-checked="true" tabindex="0">
+        Invalid ARIA state
+      </div>
+      <div class="spacer" aria-hidden="true"></div>
+      <h2>Target below the fold</h2>
+      <img
+        id="missing-alt"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='120'%3E%3Crect width='220' height='120' fill='%23ddd'/%3E%3C/svg%3E"
+      />
+    </main>
+  </body>
+</html>

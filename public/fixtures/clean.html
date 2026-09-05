@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accessibility Inspector fixture — clean automated state</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fff;
+        color: #171717;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 680px;
+        margin: auto;
+        padding: 48px 24px;
+      }
+      button {
+        padding: 10px 14px;
+        color: #fff;
+        background: #303030;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body data-expected-violations="">
+    <main>
+      <h1>Clean automated state</h1>
+      <p>
+        This page is intentionally small and semantically complete for the
+        installed axe-core rules.
+      </p>
+      <button type="button">Example action</button>
+    </main>
+  </body>
+</html>
