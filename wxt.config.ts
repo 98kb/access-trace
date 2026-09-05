@@ -7,6 +7,11 @@ export default defineConfig({
     description:
       "Deterministic, local accessibility findings for the active page.",
     permissions: ["activeTab", "scripting", "sidePanel", "storage"],
+    optional_host_permissions: [
+      "http://127.0.0.1/*",
+      "http://localhost/*",
+      "http://[::1]/*",
+    ],
     action: { default_title: "Open Accessibility Inspector" },
     ...(mode === "test" ? { host_permissions: ["http://127.0.0.1/*"] } : {}),
   }),

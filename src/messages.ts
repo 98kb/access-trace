@@ -1,5 +1,17 @@
+import {
+  parseAssistantRequest,
+  parseAssistantResponse,
+  type AssistantRequestV1,
+  type AssistantResponseV1,
+} from "./assistant-contracts";
 import type { ScanReportV1 } from "./contracts";
 import { SCHEMA_VERSION } from "./contracts";
+import {
+  parseAssistantSettings,
+  type AssistantFailureCode,
+  type AssistantProviderIdentity,
+  type AssistantSettingsV1,
+} from "./ollama";
 
 export type ScanErrorCode =
   | "invalid-message"
@@ -9,10 +21,31 @@ export type ScanErrorCode =
   | "stale-finding";
 
 export type ScanFailure = { code: ScanErrorCode; message: string };
+export type AssistantMessageErrorCode =
+  | AssistantFailureCode
+  | "disabled"
+  | "stale-finding";
+export type AssistantFailure = {
+  code: AssistantMessageErrorCode;
+  message: string;
+};
 
 export type ExtensionRequest =
   | { schemaVersion: typeof SCHEMA_VERSION; type: "get-state" }
   | { schemaVersion: typeof SCHEMA_VERSION; type: "scan-request" }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "assistant-settings-get" }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "assistant-settings-set";
+      settings: AssistantSettingsV1;
+    }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "assistant-test" }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "assistant-preview" | "assistant-generate" | "assistant-evidence";
+      findingId: string;
+    }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "assistant-cancel" }
   | {
       schemaVersion: typeof SCHEMA_VERSION;
       type: "overlay-command";
@@ -36,9 +69,51 @@ export type ExtensionResponse =
   | { schemaVersion: typeof SCHEMA_VERSION; type: "command-result"; ok: true }
   | {
       schemaVersion: typeof SCHEMA_VERSION;
+      type: "assistant-settings-result";
+      ok: true;
+      settings: AssistantSettingsV1;
+      permissionGranted: boolean;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "assistant-test-result";
+      ok: true;
+      available: true;
+      provider: AssistantProviderIdentity;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "assistant-preview-result";
+      ok: true;
+      request: AssistantRequestV1;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "assistant-result";
+      ok: true;
+      response: AssistantResponseV1;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "assistant-command-result";
+      ok: true;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
       type: "scan-result" | "command-result" | "state-result";
       ok: false;
       error: ScanFailure;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type:
+        | "assistant-settings-result"
+        | "assistant-test-result"
+        | "assistant-preview-result"
+        | "assistant-result"
+        | "assistant-command-result";
+      ok: false;
+      error: AssistantFailure;
     };
 
 export class MessageValidationError extends Error {}
@@ -74,6 +149,18 @@ function versioned(value: unknown): Record<string, unknown> {
       `Unsupported schema version: ${String(message.schemaVersion)}`,
     );
   return message;
+}
+
+function exactKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  label: string,
+): void {
+  const unexpected = Object.keys(value).find((key) => !allowed.includes(key));
+  if (unexpected)
+    throw new MessageValidationError(
+      `${label} has unexpected field: ${unexpected}`,
+    );
 }
 
 export function parseScanReport(value: unknown): ScanReportV1 {
@@ -154,6 +241,40 @@ export function parseExtensionRequest(value: unknown): ExtensionRequest {
     return { schemaVersion: SCHEMA_VERSION, type: "get-state" };
   if (message.type === "scan-request")
     return { schemaVersion: SCHEMA_VERSION, type: "scan-request" };
+  if (message.type === "assistant-settings-get") {
+    exactKeys(message, ["schemaVersion", "type"], "message");
+    return { schemaVersion: SCHEMA_VERSION, type: "assistant-settings-get" };
+  }
+  if (message.type === "assistant-settings-set") {
+    exactKeys(message, ["schemaVersion", "type", "settings"], "message");
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "assistant-settings-set",
+      settings: parseAssistantSettings(message.settings),
+    };
+  }
+  if (
+    message.type === "assistant-test" ||
+    message.type === "assistant-cancel"
+  ) {
+    exactKeys(message, ["schemaVersion", "type"], "message");
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: message.type,
+    };
+  }
+  if (
+    message.type === "assistant-preview" ||
+    message.type === "assistant-generate" ||
+    message.type === "assistant-evidence"
+  ) {
+    exactKeys(message, ["schemaVersion", "type", "findingId"], "message");
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: message.type,
+      findingId: string(message.findingId, "findingId"),
+    };
+  }
   if (message.type !== "overlay-command")
     throw new MessageValidationError(
       `Unknown message type: ${String(message.type)}`,
@@ -177,6 +298,96 @@ export function parseExtensionRequest(value: unknown): ExtensionRequest {
 
 export function parseExtensionResponse(value: unknown): ExtensionResponse {
   const message = versioned(value);
+  const assistantTypes = [
+    "assistant-settings-result",
+    "assistant-test-result",
+    "assistant-preview-result",
+    "assistant-result",
+    "assistant-command-result",
+  ];
+  if (assistantTypes.includes(String(message.type))) {
+    if (message.ok === false) {
+      const error = record(message.error, "error");
+      const codes: AssistantMessageErrorCode[] = [
+        "invalid-configuration",
+        "permission-denied",
+        "unavailable-server",
+        "missing-model",
+        "timeout",
+        "cancelled",
+        "redirect-rejected",
+        "http-failure",
+        "invalid-json",
+        "invalid-schema",
+        "disabled",
+        "stale-finding",
+      ];
+      if (!codes.includes(error.code as AssistantMessageErrorCode))
+        throw new MessageValidationError("assistant error code is invalid");
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: message.type as Extract<
+          ExtensionResponse,
+          { ok: false; error: AssistantFailure }
+        >["type"],
+        ok: false,
+        error: {
+          code: error.code as AssistantMessageErrorCode,
+          message: string(error.message, "error.message"),
+        },
+      };
+    }
+    if (message.ok !== true)
+      throw new MessageValidationError("ok must be a boolean");
+    if (message.type === "assistant-settings-result") {
+      if (typeof message.permissionGranted !== "boolean")
+        throw new MessageValidationError("permissionGranted must be a boolean");
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "assistant-settings-result",
+        ok: true,
+        settings: parseAssistantSettings(message.settings),
+        permissionGranted: message.permissionGranted,
+      };
+    }
+    if (message.type === "assistant-test-result") {
+      if (message.available !== true)
+        throw new MessageValidationError("available must be true");
+      const provider = record(message.provider, "provider");
+      if (
+        provider.id !== "ollama-local" ||
+        provider.label !== "Ollama-compatible local provider" ||
+        !Array.isArray(provider.capabilities)
+      )
+        throw new MessageValidationError("provider identity is invalid");
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "assistant-test-result",
+        ok: true,
+        available: true,
+        provider: provider as AssistantProviderIdentity,
+      };
+    }
+    if (message.type === "assistant-preview-result")
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "assistant-preview-result",
+        ok: true,
+        request: parseAssistantRequest(message.request),
+      };
+    if (message.type === "assistant-result")
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "assistant-result",
+        ok: true,
+        response: parseAssistantResponse(message.response),
+      };
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "assistant-command-result",
+      ok: true,
+    };
+  }
   if (
     message.type !== "scan-result" &&
     message.type !== "command-result" &&

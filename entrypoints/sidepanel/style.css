@@ -41,17 +41,23 @@ body {
   color: #fff;
 }
 button,
-select {
+select,
+input {
   font: inherit;
 }
 button,
 a,
-select {
+select,
+input,
+summary {
   outline: none;
 }
 button:focus-visible,
 a:focus-visible,
-select:focus-visible {
+select:focus-visible,
+input:focus-visible,
+summary:focus-visible,
+h3:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
@@ -97,6 +103,83 @@ a {
   margin: 2px 0 0;
   color: var(--muted);
   font-size: 11px;
+}
+
+.assistant-settings {
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+.assistant-settings summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.assistant-settings summary span {
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+.assistant-settings-body {
+  padding: 0 16px 14px;
+}
+.assistant-settings-body > p {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.assistant-enable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.assistant-enable input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.assistant-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.assistant-fields label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.assistant-fields .wide-field {
+  grid-column: 1 / -1;
+}
+.assistant-fields input,
+.assistant-fields select {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+}
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .launch,
@@ -493,6 +576,110 @@ a {
   font-size: 11px;
   font-weight: 700;
 }
+.assistant-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--rule);
+}
+.assistant-actions span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.evidence-preview,
+.assistant-advisory {
+  padding: 12px;
+  border-top: 1px solid var(--rule);
+  background: var(--surface-raised);
+}
+.evidence-preview h3,
+.assistant-advisory h3,
+.assistant-advisory h4 {
+  margin: 0;
+}
+.evidence-preview > p,
+.assistant-advisory p,
+.assistant-advisory li {
+  font-size: 11px;
+  line-height: 1.45;
+}
+.evidence-preview > p {
+  margin: 6px 0;
+  color: var(--muted);
+}
+.evidence-categories strong {
+  color: var(--ink);
+}
+.evidence-preview pre {
+  max-height: 240px;
+  overflow: auto;
+  margin: 9px 0 0;
+  padding: 8px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font:
+    10px/1.45 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.assistant-error {
+  padding: 8px;
+  border: 1px solid #d17a7a;
+  background: #fff0f0;
+  color: #711a1a !important;
+}
+.assistant-global-error {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid #d17a7a;
+  background: #fff0f0;
+  color: #711a1a;
+  font-size: 11px;
+}
+.assistant-advisory {
+  background: var(--surface-raised);
+}
+.assistant-advisory header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.assistant-advisory header span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.assistant-advisory h4 {
+  margin-top: 12px;
+  font-size: 11px;
+}
+.assistant-advisory p {
+  margin: 4px 0 0;
+}
+.assistant-advisory .advisory-note {
+  color: var(--muted);
+}
+.assistant-advisory ul {
+  display: block;
+  margin: 4px 0 0 18px;
+  padding: 0;
+  list-style: disc;
+}
+.assistant-advisory li {
+  color: var(--ink);
+  font-family: inherit;
+}
+.assistant-advisory .secondary {
+  margin-top: 12px;
+}
 .filter-empty {
   padding: 24px 12px;
   color: var(--muted);
@@ -552,6 +739,11 @@ a {
     background: #402424;
     color: #ffc7c7;
   }
+  .assistant-error {
+    border-color: #884b4b;
+    background: #402424;
+    color: #ffc7c7 !important;
+  }
   .impact-critical,
   .impact-serious {
     background: #522727;
@@ -576,6 +768,12 @@ a {
   }
   .toolbar {
     grid-template-columns: 1fr;
+  }
+  .assistant-fields {
+    grid-template-columns: 1fr;
+  }
+  .assistant-fields .wide-field {
+    grid-column: 1;
   }
   .overlay-toggle,
   .command-error {

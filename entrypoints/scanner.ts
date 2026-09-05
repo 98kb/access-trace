@@ -2,6 +2,7 @@ import axe from "axe-core";
 
 import type { ScanReportV1 } from "../src/contracts";
 import { SCHEMA_VERSION } from "../src/contracts";
+import { buildAssistantRequest } from "../src/evidence";
 import { parseExtensionRequest, type ExtensionResponse } from "../src/messages";
 import { normalizeAxeResults } from "../src/normalize";
 import { OverlayController } from "../src/overlay";
@@ -149,6 +150,30 @@ export default defineUnlistedScript(() => {
             : "axe-core could not scan this page.",
         );
       }
+    }
+
+    if (request.type === "assistant-evidence") {
+      const finding = state.report?.findings.find(
+        (item) =>
+          item.findingId === request.findingId && item.status === "violation",
+      );
+      const element = finding ? state.elements.get(finding.nodeRef) : undefined;
+      if (!finding || !element?.isConnected)
+        return {
+          schemaVersion: SCHEMA_VERSION,
+          type: "assistant-preview-result",
+          ok: false,
+          error: {
+            code: "stale-finding",
+            message: "The page changed. Rescan before explaining this finding.",
+          },
+        };
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "assistant-preview-result",
+        ok: true,
+        request: buildAssistantRequest(element, finding),
+      };
     }
 
     if (request.type !== "overlay-command")

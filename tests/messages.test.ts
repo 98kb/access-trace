@@ -70,4 +70,60 @@ describe("extension message parsing", () => {
         : parseExtensionRequest(message),
     ).toThrow(expected);
   });
+
+  it("parses local-assistant commands without accepting arbitrary settings", () => {
+    expect(
+      parseExtensionRequest({
+        schemaVersion: "1.0",
+        type: "assistant-settings-set",
+        settings: {
+          enabled: true,
+          host: "127.0.0.1",
+          port: 11434,
+          model: "local-model",
+          timeoutMs: 30000,
+        },
+      }),
+    ).toMatchObject({
+      type: "assistant-settings-set",
+      settings: { host: "127.0.0.1", model: "local-model" },
+    });
+    expect(() =>
+      parseExtensionRequest({
+        schemaVersion: "1.0",
+        type: "assistant-settings-set",
+        settings: {
+          enabled: true,
+          host: "public.example",
+          port: 11434,
+          model: "local-model",
+          timeoutMs: 30000,
+        },
+      }),
+    ).toThrow("loopback");
+    expect(() =>
+      parseExtensionRequest({
+        schemaVersion: "1.0",
+        type: "assistant-preview",
+        findingId: "finding-1",
+        pageHtml: "<main>unsafe</main>",
+      }),
+    ).toThrow("unexpected field");
+  });
+
+  it("does not turn an unavailable assistant result into availability", () => {
+    expect(() =>
+      parseExtensionResponse({
+        schemaVersion: "1.0",
+        type: "assistant-test-result",
+        ok: true,
+        available: false,
+        provider: {
+          id: "ollama-local",
+          label: "Ollama-compatible local provider",
+          capabilities: ["structured-json", "cancellation", "timeout"],
+        },
+      }),
+    ).toThrow("available");
+  });
 });

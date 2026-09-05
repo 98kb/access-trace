@@ -20,7 +20,7 @@ Provide an explicit, deterministic loop from a local automated scan to a visible
 
 ## Positioning
 
-The inspector keeps scanning, findings, and element location local and useful without AI. A clean automated scan is never presented as proof of WCAG compliance.
+The inspector keeps scanning, findings, and element location local and useful without AI. A clean automated scan is never presented as proof of WCAG compliance. Optional advisory explanations can be sent only after explicit confirmation to an allowlisted Ollama-compatible loopback process.
 
 ## Operating Context
 
@@ -28,7 +28,7 @@ The primary interface is Chrome's native side panel beside the inspected page. U
 
 ## Capabilities and Constraints
 
-Run axe-core only after user action, with minimum permissions and no host-wide access. Findings are scoped to a tab and session. Cross-origin frame geometry and closed shadow roots are not promised in this release. No telemetry, remote assets, external APIs, automated remediation, crawling, or AI.
+Run axe-core only after user action, with minimum permissions and no host-wide access. Findings are scoped to a tab and session. Cross-origin frame geometry and closed shadow roots are not promised in this release. Optional AI is per-finding, local-loopback-only, bounded, previewed before sending, and advisory; it never changes deterministic findings. No telemetry, remote assets, hosted APIs, automated remediation, crawling, model downloads, or automatic AI calls.
 
 ## Brand Commitments
 
@@ -36,7 +36,7 @@ Run axe-core only after user action, with minimum permissions and no host-wide a
 
 ## Evidence on Hand
 
-The implementation specification is `docs/run-01-deterministic-vertical-slice.md`; deterministic local fixtures cover known rule IDs and a clean state.
+The implementation specifications are `docs/run-01-deterministic-vertical-slice.md` and `docs/run-02-local-ai-boundary.md`; deterministic fixtures cover known rule IDs, a clean state, and a fake loopback provider flow.
 
 ## Product Principles
 
