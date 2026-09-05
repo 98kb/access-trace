@@ -194,6 +194,22 @@ function stringMap(
   );
 }
 
+/**
+ * Key order is not part of the contract, and session storage reorders object
+ * keys on its round trip. The evidence gate compares this canonical form so a
+ * stored preview is judged by its content, not its serialisation.
+ */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+}
+
 export function parseAssistantRequest(value: unknown): AssistantRequestV1 {
   serializedLimit(value, "request", ASSISTANT_REQUEST_MAX_BYTES);
   const request = object(value, "request");

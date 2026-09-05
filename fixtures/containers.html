@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accessibility Inspector fixture — nested containers</title>
+    <style>
+      body {
+        margin: 0;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: auto;
+        padding: 32px 24px 900px;
+      }
+      .outer-scroll {
+        height: 260px;
+        overflow: auto;
+        border: 2px solid #6b7280;
+        transform: translateZ(0) scale(0.98);
+      }
+      .inner-scroll {
+        height: 900px;
+        padding: 12px;
+        overflow: auto;
+      }
+      .sticky-bar {
+        position: sticky;
+        top: 0;
+        padding: 8px;
+        background: #e5e7eb;
+      }
+      .fixed-badge {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        padding: 8px;
+        background: #e5e7eb;
+      }
+    </style>
+  </head>
+  <body data-expected-violations="image-alt">
+    <main>
+      <h1>Nested scrolling, sticky, and fixed targets</h1>
+      <div class="outer-scroll">
+        <div class="sticky-bar">
+          <img id="sticky-missing-alt" src="data:," width="30" height="30" />
+        </div>
+        <div class="inner-scroll">
+          <p>Scroll inside this nested container.</p>
+          <img id="nested-missing-alt" src="data:," width="60" height="60" />
+        </div>
+      </div>
+      <div class="fixed-badge">
+        <img id="fixed-missing-alt" src="data:," width="30" height="30" />
+      </div>
+    </main>
+  </body>
+</html>

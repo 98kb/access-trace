@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accessibility Inspector fixture — hostile page styles</title>
+    <style>
+      html {
+        font-size: 7px;
+      }
+      *,
+      *::before,
+      *::after {
+        all: unset;
+        display: revert;
+        box-sizing: border-box;
+      }
+      div,
+      section,
+      span,
+      p,
+      h1,
+      h2,
+      img {
+        border: 0 !important;
+        outline: 0 !important;
+        background: transparent !important;
+        transform: none !important;
+        animation: none !important;
+        position: static !important;
+        z-index: auto !important;
+        pointer-events: auto !important;
+      }
+      body {
+        margin: 2rem;
+        font-family: system-ui, sans-serif;
+      }
+      .overlay-decoy {
+        position: fixed !important;
+        inset: 0 !important;
+        z-index: 2147483647 !important;
+        pointer-events: none !important;
+      }
+    </style>
+  </head>
+  <body data-expected-violations="image-alt">
+    <div class="overlay-decoy"></div>
+    <h1>Hostile global reset</h1>
+    <p>
+      This page resets every property, sets a 7px root font size, and reserves
+      the maximum stacking index.
+    </p>
+    <img id="hostile-missing-alt" src="data:," width="80" height="60" />
+  </body>
+</html>

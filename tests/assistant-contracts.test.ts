@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ASSISTANT_REQUEST_MAX_BYTES,
+  canonicalJson,
   parseAssistantRequest,
   parseAssistantResponse,
 } from "../src/assistant-contracts";
@@ -105,5 +106,22 @@ describe("assistant contracts", () => {
     ],
   ])("fails closed for untrusted model responses", (response, message) => {
     expect(() => parseAssistantResponse(response)).toThrow(message);
+  });
+});
+
+describe("canonicalJson", () => {
+  it("ignores key order so a stored preview still matches fresh evidence", () => {
+    expect(canonicalJson({ b: 1, a: { d: [2, 3], c: "x" } })).toBe(
+      canonicalJson({ a: { c: "x", d: [2, 3] }, b: 1 }),
+    );
+  });
+
+  it("still distinguishes a genuine change in evidence", () => {
+    expect(canonicalJson({ a: 1 })).not.toBe(canonicalJson({ a: 2 }));
+    expect(canonicalJson({ a: [1, 2] })).not.toBe(canonicalJson({ a: [2, 1] }));
+  });
+
+  it("drops undefined members rather than emitting invalid JSON", () => {
+    expect(canonicalJson({ a: undefined, b: 1 })).toBe('{"b":1}');
   });
 });

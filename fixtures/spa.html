@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accessibility Inspector fixture — same-document routing</title>
+    <style>
+      body {
+        margin: 0;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: auto;
+        padding: 32px 24px;
+      }
+    </style>
+  </head>
+  <body data-expected-violations="image-alt">
+    <main>
+      <h1>Same-document route change</h1>
+      <p id="route">Route: /home</p>
+      <button id="navigate" type="button">Go to /details</button>
+      <img id="spa-missing-alt" src="data:," width="80" height="60" />
+    </main>
+    <script src="./spa.js"></script>
+  </body>
+</html>

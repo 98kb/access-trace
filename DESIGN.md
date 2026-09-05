@@ -245,8 +245,8 @@ The live-page overlay is intentionally angular: 3px bounds become 5px when selec
 
 ### Live Target Overlay
 
-- **Default:** 3px Target Fuchsia bounds with a 12% fill and a dark monospace label.
-- **Selected:** 5px Target Violet bounds, 14% fill, 2px white outline, and a two-cycle 650ms emphasis animation toward yellow.
+- **Default:** 3px Target Fuchsia bounds with a 12% fill. Bounds carry no label: a page may hold hundreds of findings, and permanent labels would obscure the content being inspected. Needs-review bounds are dashed so status is not carried by colour alone.
+- **Selected:** the dark monospace label appears on the selected bound only. 5px Target Violet bounds, 14% fill, 2px white outline, and a two-cycle 650ms emphasis animation toward yellow.
 - **Reduced motion:** remove the animation entirely when requested by the operating system.
 
 ## Do's and Don'ts

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeAxeResults } from "../src/normalize";
+import { buildCoverage } from "../src/coverage";
+import { frameIdFromNodeRef, normalizeAxeResults } from "../src/normalize";
 
 describe("normalizeAxeResults", () => {
   it("creates one versioned finding per affected node without promoting incomplete checks", () => {
@@ -97,13 +98,31 @@ describe("normalizeAxeResults", () => {
         scanId: "scan-123",
         title: "Example form",
         durationMs: 18,
-        warnings: ["Cross-origin frames were not inspected."],
-        skippedRegions: [
-          {
-            kind: "frame",
-            reason: "Cross-origin frame geometry is unavailable.",
-          },
-        ],
+        frame: {
+          frameId: 0,
+          parentFrameId: -1,
+          url: "https://example.test/form",
+          depth: 0,
+        },
+        coverage: buildCoverage({
+          ruleCounts: { passes: 1, inapplicable: 1 },
+          openShadowRoots: 1,
+          closedShadowRoots: 0,
+          regions: [
+            {
+              kind: "document",
+              state: "scanned",
+              detail: "Top document",
+              frameId: 0,
+            },
+            {
+              kind: "frame",
+              state: "skipped",
+              reason: "cross-origin-frame",
+              detail: "https://other.test/widget",
+            },
+          ],
+        }),
       },
     );
 
@@ -114,7 +133,9 @@ describe("normalizeAxeResults", () => {
       page: { url: "https://example.test/form", title: "Example form" },
       durationMs: 18,
       coverage: { complete: false, ruleCounts: { passes: 1, inapplicable: 1 } },
-      warnings: ["Cross-origin frames were not inspected."],
+      warnings: [
+        "1 frame was skipped because it is cross-origin and inaccessible to this extension.",
+      ],
     });
     expect(report.findings).toHaveLength(3);
     expect(
@@ -141,7 +162,13 @@ describe("normalizeAxeResults", () => {
     expect(report.findings[1]?.evidence).toBe(
       '<input aria-label="Dog" value="[redacted]">',
     );
-    expect(report.findings[0]?.findingId).toContain("scan-123:image-alt:");
-    expect(report.findings[0]?.nodeRef).toContain("scan-123:");
+    expect(report.findings[0]?.findingId).toContain("scan-123:0:image-alt:");
+    expect(report.findings[0]?.frame).toEqual({
+      frameId: 0,
+      parentFrameId: -1,
+      url: "https://example.test/form",
+      depth: 0,
+    });
+    expect(frameIdFromNodeRef(report.findings[0]!.nodeRef)).toBe(0);
   });
 });

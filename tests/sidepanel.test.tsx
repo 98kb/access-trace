@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import App from "../entrypoints/sidepanel/App";
+import { CLOSED_SHADOW_ROOT_NOTE } from "../src/aggregate";
 import type {
   AssistantRequestV1,
   AssistantResponseV1,
@@ -19,8 +20,24 @@ const scannedReport: ScanReportV1 = {
   page: { url: "https://example.test/fixture", title: "Fixture page" },
   startedAt: "2026-09-05T10:00:00.000Z",
   durationMs: 24,
-  coverage: { complete: true, ruleCounts: { passes: 17, inapplicable: 40 } },
-  warnings: [],
+  coverage: {
+    complete: true,
+    ruleCounts: { passes: 17, inapplicable: 40 },
+    topDocument: "scanned",
+    frames: { discovered: 0, scanned: 0, skipped: 0, failed: 0 },
+    shadowRoots: { openScanned: 0, closedEncountered: 0 },
+    regions: [
+      {
+        kind: "document",
+        state: "scanned",
+        detail: "Top document",
+        frameId: 0,
+      },
+    ],
+    cancelled: false,
+    partial: false,
+  },
+  warnings: [CLOSED_SHADOW_ROOT_NOTE],
   skippedRegions: [],
   findings: [
     {
@@ -175,8 +192,15 @@ describe("side panel", () => {
     await user.click(
       await screen.findByRole("button", { name: "Scan this page" }),
     );
-    expect(await screen.findByText("No automated findings")).toBeVisible();
-    expect(screen.getByText(/does not prove WCAG compliance/i)).toBeVisible();
+    expect(
+      await screen.findByText("No findings detected in scanned content"),
+    ).toBeVisible();
+    expect(
+      screen.getAllByText(/not proof that the page is accessible/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByText(/no accessibility defects/i),
+    ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Rescan" }));
     expect(
       await screen.findByRole("heading", {

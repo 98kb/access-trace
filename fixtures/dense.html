@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accessibility Inspector fixture — many findings</title>
+    <style>
+      body {
+        margin: 0;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: auto;
+        padding: 32px 24px;
+      }
+      .faint {
+        color: #dcdcdc;
+        background: #efefef;
+      }
+      .stacked {
+        color: #dedede;
+        background: #ececec;
+      }
+    </style>
+  </head>
+  <body data-expected-violations="image-alt color-contrast aria-allowed-attr">
+    <main>
+      <h1>Many findings, including several on one element</h1>
+      <a
+        id="stacked-target"
+        class="stacked"
+        href="#stacked-target"
+        role="button"
+        aria-checked="true"
+        ><img id="stacked-image" src="data:," width="24" height="24"
+      /></a>
+      <p class="dense-row">
+        <img id="dense-0" src="data:," width="24" height="24" />
+        <span class="faint">Row 0</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-1" src="data:," width="24" height="24" />
+        <span class="faint">Row 1</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-2" src="data:," width="24" height="24" />
+        <span class="faint">Row 2</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-3" src="data:," width="24" height="24" />
+        <span class="faint">Row 3</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-4" src="data:," width="24" height="24" />
+        <span class="faint">Row 4</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-5" src="data:," width="24" height="24" />
+        <span class="faint">Row 5</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-6" src="data:," width="24" height="24" />
+        <span class="faint">Row 6</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-7" src="data:," width="24" height="24" />
+        <span class="faint">Row 7</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-8" src="data:," width="24" height="24" />
+        <span class="faint">Row 8</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-9" src="data:," width="24" height="24" />
+        <span class="faint">Row 9</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-10" src="data:," width="24" height="24" />
+        <span class="faint">Row 10</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-11" src="data:," width="24" height="24" />
+        <span class="faint">Row 11</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-12" src="data:," width="24" height="24" />
+        <span class="faint">Row 12</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-13" src="data:," width="24" height="24" />
+        <span class="faint">Row 13</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-14" src="data:," width="24" height="24" />
+        <span class="faint">Row 14</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-15" src="data:," width="24" height="24" />
+        <span class="faint">Row 15</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-16" src="data:," width="24" height="24" />
+        <span class="faint">Row 16</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-17" src="data:," width="24" height="24" />
+        <span class="faint">Row 17</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-18" src="data:," width="24" height="24" />
+        <span class="faint">Row 18</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-19" src="data:," width="24" height="24" />
+        <span class="faint">Row 19</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-20" src="data:," width="24" height="24" />
+        <span class="faint">Row 20</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-21" src="data:," width="24" height="24" />
+        <span class="faint">Row 21</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-22" src="data:," width="24" height="24" />
+        <span class="faint">Row 22</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-23" src="data:," width="24" height="24" />
+        <span class="faint">Row 23</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-24" src="data:," width="24" height="24" />
+        <span class="faint">Row 24</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-25" src="data:," width="24" height="24" />
+        <span class="faint">Row 25</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-26" src="data:," width="24" height="24" />
+        <span class="faint">Row 26</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-27" src="data:," width="24" height="24" />
+        <span class="faint">Row 27</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-28" src="data:," width="24" height="24" />
+        <span class="faint">Row 28</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-29" src="data:," width="24" height="24" />
+        <span class="faint">Row 29</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-30" src="data:," width="24" height="24" />
+        <span class="faint">Row 30</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-31" src="data:," width="24" height="24" />
+        <span class="faint">Row 31</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-32" src="data:," width="24" height="24" />
+        <span class="faint">Row 32</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-33" src="data:," width="24" height="24" />
+        <span class="faint">Row 33</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-34" src="data:," width="24" height="24" />
+        <span class="faint">Row 34</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-35" src="data:," width="24" height="24" />
+        <span class="faint">Row 35</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-36" src="data:," width="24" height="24" />
+        <span class="faint">Row 36</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-37" src="data:," width="24" height="24" />
+        <span class="faint">Row 37</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-38" src="data:," width="24" height="24" />
+        <span class="faint">Row 38</span>
+      </p>
+      <p class="dense-row">
+        <img id="dense-39" src="data:," width="24" height="24" />
+        <span class="faint">Row 39</span>
+      </p>
+    </main>
+  </body>
+</html>

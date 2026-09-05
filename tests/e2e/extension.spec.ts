@@ -228,11 +228,16 @@ test("a known finding crosses the extension boundary and maps to its live elemen
     await fixture.goto("http://127.0.0.1:4173/clean.html");
     await fixture.bringToFront();
     await panel
-      .getByRole("button", { name: "Rescan" })
+      .getByRole("button", { name: "Rescan", exact: true })
       .evaluate((button: HTMLButtonElement) => button.click());
     await expect(
-      panel.getByRole("heading", { name: "No automated findings" }),
+      panel.getByRole("heading", {
+        name: "No findings detected in scanned content",
+      }),
     ).toBeVisible();
+    await expect(
+      panel.getByRole("region", { name: "Scan coverage" }),
+    ).toContainText("Scanned the top document");
   } finally {
     provider.closeAllConnections();
     provider.close();

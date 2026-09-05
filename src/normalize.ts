@@ -4,16 +4,20 @@ import type {
   FindingImpact,
   FindingStatus,
   FindingV1,
-  LocatorSegmentV1,
+  FrameRefV1,
+  ScanCoverageV1,
   ScanReportV1,
 } from "./contracts";
 import { SCHEMA_VERSION } from "./contracts";
+import { coverageWarnings, legacySkippedRegions } from "./coverage";
+import { locatorSegmentsFromAxeTarget, redactSnippet } from "./locator";
 
-type NormalizationContext = Pick<
-  ScanReportV1,
-  "scanId" | "durationMs" | "warnings" | "skippedRegions"
-> & {
+type NormalizationContext = {
+  scanId: string;
   title: string;
+  durationMs: number;
+  frame: FrameRefV1;
+  coverage: ScanCoverageV1;
 };
 
 const impacts = new Set<FindingImpact>([
@@ -32,48 +36,26 @@ function hash(value: string): string {
   return (result >>> 0).toString(36);
 }
 
-function evidence(html: string): string {
-  return html
-    .replace(
-      /\svalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
-      ' value="[redacted]"',
-    )
-    .replace(/(<textarea\b[^>]*>)[\s\S]*?(<\/textarea>)/gi, "$1[redacted]$2")
-    .slice(0, 500);
-}
-
-function locator(target: NodeResult["target"]): LocatorSegmentV1[] {
-  const segments: LocatorSegmentV1[] = [];
-  target.forEach((part, partIndex) => {
-    const finalPart = partIndex === target.length - 1;
-    if (typeof part === "string") {
-      segments.push({ type: finalPart ? "css" : "frame", selector: part });
-      return;
-    }
-    part.forEach((selector, selectorIndex) => {
-      const finalSelector = selectorIndex === part.length - 1;
-      segments.push({
-        type: finalSelector ? (finalPart ? "css" : "frame") : "shadow",
-        selector,
-      });
-    });
-  });
-  return segments;
-}
-
 function findings(
   results: Result[],
   status: FindingStatus,
-  scanId: string,
+  context: NormalizationContext,
 ): FindingV1[] {
+  const { scanId, frame } = context;
   return results.flatMap((result) =>
-    result.nodes.map((node) => {
-      const snippet = evidence(node.html);
+    result.nodes.map((node: NodeResult) => {
+      const snippet = redactSnippet(node.html);
       const occurrence = hash(
-        JSON.stringify([status, result.id, node.target, snippet]),
+        JSON.stringify([
+          frame.frameId,
+          status,
+          result.id,
+          node.target,
+          snippet,
+        ]),
       );
       return {
-        findingId: `${scanId}:${result.id}:${occurrence}`,
+        findingId: `${scanId}:${frame.frameId}:${result.id}:${occurrence}`,
         ruleId: result.id,
         status,
         impact: impacts.has(node.impact as FindingImpact)
@@ -85,9 +67,14 @@ function findings(
         help: result.help,
         helpUrl: result.helpUrl,
         failureSummary: node.failureSummary ?? "Manual review is required.",
-        locator: { segments: locator(node.target) },
+        locator: {
+          segments: locatorSegmentsFromAxeTarget(
+            node.target as Array<string | string[]>,
+          ),
+        },
         evidence: snippet,
-        nodeRef: `${scanId}:${occurrence}`,
+        nodeRef: `${scanId}:${frame.frameId}:${occurrence}`,
+        frame,
       };
     }),
   );
@@ -104,18 +91,20 @@ export function normalizeAxeResults(
     page: { url: results.url, title: context.title },
     startedAt: results.timestamp,
     durationMs: context.durationMs,
-    coverage: {
-      complete: context.skippedRegions.length === 0,
-      ruleCounts: {
-        passes: results.passes.length,
-        inapplicable: results.inapplicable.length,
-      },
-    },
+    coverage: context.coverage,
     findings: [
-      ...findings(results.violations, "violation", context.scanId),
-      ...findings(results.incomplete, "needs-review", context.scanId),
+      ...findings(results.violations, "violation", context),
+      ...findings(results.incomplete, "needs-review", context),
     ],
-    warnings: context.warnings,
-    skippedRegions: context.skippedRegions,
+    warnings: coverageWarnings(context.coverage),
+    skippedRegions: legacySkippedRegions(context.coverage),
   };
+}
+
+/** Frame that owns a nodeRef, encoded as `<scanId>:<frameId>:<occurrence>`. */
+export function frameIdFromNodeRef(nodeRef: string): number | undefined {
+  const parts = nodeRef.split(":");
+  if (parts.length < 3) return undefined;
+  const frameId = Number(parts[parts.length - 2]);
+  return Number.isInteger(frameId) && frameId >= 0 ? frameId : undefined;
 }

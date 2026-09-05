@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accessibility Inspector fixture — post-scan mutation</title>
+    <style>
+      body {
+        margin: 0;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: auto;
+        padding: 32px 24px;
+      }
+    </style>
+  </head>
+  <body data-expected-violations="image-alt">
+    <main>
+      <h1>Element replaced after the scan</h1>
+      <button id="replace" type="button">Replace the target</button>
+      <div id="slot">
+        <img id="target" src="data:," width="80" height="60" />
+      </div>
+    </main>
+    <script src="./mutation.js"></script>
+  </body>
+</html>

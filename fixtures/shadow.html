@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accessibility Inspector fixture — shadow roots</title>
+    <style>
+      body {
+        margin: 0;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: auto;
+        padding: 32px 24px;
+      }
+    </style>
+  </head>
+  <body data-expected-violations="image-alt">
+    <main>
+      <h1>Shadow root fixture</h1>
+      <p>
+        The open root holds a known finding. The closed root cannot be
+        inspected.
+      </p>
+      <div id="open-host"></div>
+      <div id="closed-host"></div>
+    </main>
+    <script src="./shadow.js"></script>
+  </body>
+</html>

@@ -28,7 +28,7 @@ The primary interface is Chrome's native side panel beside the inspected page. U
 
 ## Capabilities and Constraints
 
-Run axe-core only after user action, with minimum permissions and no host-wide access. Findings are scoped to a tab and session. Cross-origin frame geometry and closed shadow roots are not promised in this release. Optional AI is per-finding, local-loopback-only, bounded, previewed before sending, and advisory; it never changes deterministic findings. No telemetry, remote assets, hosted APIs, automated remediation, crawling, model downloads, or automatic AI calls.
+Run axe-core only after user action, with minimum permissions and no host-wide access. Findings are scoped to a tab and session, and survive service-worker suspension through session storage. Reachable child frames and open shadow roots are scanned and attributed to the frame that owns them; frames Chrome will not grant and closed shadow roots are reported as uninspected rather than ignored. Navigation and meaningful mutation mark results stale instead of triggering a hidden rescan. Optional AI is per-finding, local-loopback-only, bounded, previewed before sending, and advisory; it never changes deterministic findings. No telemetry, remote assets, hosted APIs, automated remediation, crawling, model downloads, or automatic AI calls.
 
 ## Brand Commitments
 
@@ -36,11 +36,12 @@ Run axe-core only after user action, with minimum permissions and no host-wide a
 
 ## Evidence on Hand
 
-The implementation specifications are `docs/run-01-deterministic-vertical-slice.md` and `docs/run-02-local-ai-boundary.md`; deterministic fixtures cover known rule IDs, a clean state, and a fake loopback provider flow.
+The implementation specifications are `docs/run-01-deterministic-vertical-slice.md`, `docs/run-02-local-ai-boundary.md`, and `docs/run-03-hardening-and-release-readiness.md`. Deterministic fixtures in `fixtures/` cover known rule IDs, a clean state, same-origin and cross-origin frames, open and closed shadow roots, long and nested-scrolling documents, a hostile global CSS reset, same-document routing, post-scan mutation, and many findings; a fake loopback provider exercises the AI boundary.
 
 ## Product Principles
 
 - Ask before scanning.
+- Report what was not scanned as plainly as what was.
 - Distinguish confirmed violations from items needing review.
 - Make the finding-to-element connection obvious without changing the page.
 - Fail closed at extension boundaries.

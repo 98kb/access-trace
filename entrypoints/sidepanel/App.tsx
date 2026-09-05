@@ -10,6 +10,7 @@ import type {
   ScanReportV1,
 } from "../../src/contracts";
 import { SCHEMA_VERSION } from "../../src/contracts";
+import { coverageSummary, scannedScopeSentence } from "../../src/coverage";
 import type {
   ExtensionRequest,
   ExtensionResponse,
@@ -26,6 +27,11 @@ import "./style.css";
 type Props = {
   send: (request: ExtensionRequest) => Promise<ExtensionResponse>;
   requestPermission?: (settings: AssistantSettingsV1) => Promise<boolean>;
+  /**
+   * Notifies the panel that background state changed, so a restarted service
+   * worker or a page navigation is reflected without polling.
+   */
+  subscribeToState?: (listener: () => void) => () => void;
 };
 
 type Phase = "loading" | "idle" | "scanning" | "ready" | "error";
@@ -47,6 +53,9 @@ const errorTitles: Record<ScanFailure["code"], string> = {
   "stale-finding": "The selected finding is stale",
   "invalid-message": "The extension returned invalid data",
   "scan-failed": "The scan could not be completed",
+  timeout: "The scan timed out",
+  cancelled: "The scan was cancelled",
+  "frame-unreachable": "That frame is no longer reachable",
 };
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -56,6 +65,7 @@ function errorMessage(error: unknown, fallback: string): string {
 export default function App({
   send,
   requestPermission = async () => true,
+  subscribeToState,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [report, setReport] = useState<ScanReportV1>();
@@ -80,29 +90,77 @@ export default function App({
     findingId: string;
     response: AssistantResponseV1;
   }>();
+  const [stale, setStale] = useState<{ reason: string } | undefined>();
   const previewHeading = useRef<HTMLHeadingElement>(null);
   const advisoryHeading = useRef<HTMLHeadingElement>(null);
+  const resultsHeading = useRef<HTMLHeadingElement>(null);
+  const staleHeading = useRef<HTMLHeadingElement>(null);
+  const explainButtons = useRef(new Map<string, HTMLButtonElement | null>());
+  const hasReport = useRef(false);
+  const scanning = phase === "scanning";
 
-  useEffect(() => {
-    void send({ schemaVersion: SCHEMA_VERSION, type: "get-state" })
-      .then((response) => {
-        if (!response.ok) throw response.error;
-        if (response.type !== "state-result")
+  const refreshState = useMemo(
+    () => async () => {
+      try {
+        const response = await send({
+          schemaVersion: SCHEMA_VERSION,
+          type: "get-state",
+        });
+        if (!response.ok || response.type !== "state-result")
           throw new Error("Unexpected state response.");
         if (response.report) {
+          hasReport.current = true;
           setReport(response.report);
-          setPhase("ready");
-          setNotice("Saved scan restored");
-        } else {
-          setPhase("idle");
-          setNotice("Ready to scan");
+          setPhase((current) => (current === "scanning" ? current : "ready"));
+        } else if (hasReport.current) {
+          // A refresh that carries no report cannot prove the displayed one is
+          // fresh, so it must not clear staleness or re-enable highlighting.
+          return undefined;
         }
+        if (response.stale) {
+          setStale({
+            reason:
+              response.staleReason ??
+              "The page changed after this scan, so these findings may not match what you see.",
+          });
+          setSelected(undefined);
+          setOverlayVisible(false);
+          setPreview(undefined);
+          setAdvisory(undefined);
+          setGeneration("idle");
+        } else {
+          setStale(undefined);
+        }
+        return response.report;
+      } catch {
+        return undefined;
+      }
+    },
+    [send],
+  );
+
+  useEffect(() => {
+    void refreshState()
+      .then((restored) => {
+        setPhase((current) =>
+          current === "loading" ? (restored ? "ready" : "idle") : current,
+        );
+        setNotice(restored ? "Saved scan restored" : "Ready to scan");
       })
       .catch(() => {
         setPhase("idle");
         setNotice("Ready to scan");
       });
-  }, [send]);
+  }, [refreshState]);
+
+  useEffect(() => {
+    if (!subscribeToState) return undefined;
+    return subscribeToState(() => void refreshState());
+  }, [subscribeToState, refreshState]);
+
+  useEffect(() => {
+    if (stale) staleHeading.current?.focus();
+  }, [stale]);
 
   useEffect(() => {
     void send({ schemaVersion: SCHEMA_VERSION, type: "assistant-settings-get" })
@@ -246,6 +304,7 @@ export default function App({
   };
 
   const previewEvidence = async (findingId: string) => {
+    if (generation === "previewing" || generation === "generating") return;
     setGeneration("previewing");
     setAssistantError(undefined);
     setAdvisory(undefined);
@@ -284,6 +343,7 @@ export default function App({
   };
 
   const generateAdvisory = async (findingId: string) => {
+    if (generation === "generating") return;
     setGeneration("generating");
     setAssistantError(undefined);
     setNotice("Generating local AI advisory");
@@ -330,9 +390,18 @@ export default function App({
     }).catch(() => undefined);
   };
 
+  const cancelScan = async () => {
+    setNotice("Cancelling the scan");
+    await send({ schemaVersion: SCHEMA_VERSION, type: "scan-cancel" }).catch(
+      () => undefined,
+    );
+  };
+
   const scan = async () => {
+    if (phase === "scanning") return;
     if (generation === "generating") await cancelAdvisory();
     setPhase("scanning");
+    setStale(undefined);
     setError(undefined);
     setCommandError(undefined);
     setNotice("Scanning the rendered page");
@@ -353,10 +422,15 @@ export default function App({
       return;
     }
     if (response.type !== "scan-result") {
-      setError({
-        code: "invalid-message",
-        message: "The extension returned an unexpected response.",
-      });
+      // A typed failure from another channel still carries the real reason.
+      setError(
+        !response.ok && "error" in response && "code" in response.error
+          ? (response.error as ScanFailure)
+          : {
+              code: "invalid-message",
+              message: "The extension returned an unexpected response.",
+            },
+      );
       setPhase("error");
       return;
     }
@@ -375,8 +449,15 @@ export default function App({
     setAssistantError(undefined);
     setGeneration("idle");
     setOverlayVisible(false);
+    setStale(undefined);
     setPhase("ready");
-    setNotice(`Scan complete: ${response.report.findings.length} findings`);
+    hasReport.current = true;
+    const summary = coverageSummary(
+      response.report.coverage,
+      response.report.findings.length,
+    );
+    setNotice(`Scan complete. ${summary.headline}. ${summary.detail}`);
+    queueMicrotask(() => resultsHeading.current?.focus());
   };
 
   const command = async (
@@ -436,15 +517,31 @@ export default function App({
     }
   };
 
-  const filtered = useMemo(
-    () =>
+  const matching = useMemo(
+    () => (nextStatus: StatusFilter, nextImpact: ImpactFilter) =>
       report?.findings.filter(
         (finding) =>
-          (status === "all" || finding.status === status) &&
-          (impact === "all" || finding.impact === impact),
+          (nextStatus === "all" || finding.status === nextStatus) &&
+          (nextImpact === "all" || finding.impact === nextImpact),
       ) ?? [],
-    [report, status, impact],
+    [report],
   );
+  const filtered = useMemo(
+    () => matching(status, impact),
+    [matching, status, impact],
+  );
+  const applyFilter = (next: {
+    status?: StatusFilter;
+    impact?: ImpactFilter;
+  }) => {
+    const nextStatus = next.status ?? status;
+    const nextImpact = next.impact ?? impact;
+    setStatus(nextStatus);
+    setImpact(nextImpact);
+    setNotice(
+      `${matching(nextStatus, nextImpact).length} of ${report?.findings.length ?? 0} findings match the current filters`,
+    );
+  };
   const violations =
     report?.findings.filter((finding) => finding.status === "violation")
       .length ?? 0;
@@ -500,7 +597,12 @@ export default function App({
             Run axe-core against the rendered document. Nothing is scanned until
             you choose to start.
           </p>
-          <button className="primary" type="button" onClick={() => void scan()}>
+          <button
+            className="primary"
+            type="button"
+            disabled={scanning}
+            onClick={() => void scan()}
+          >
             Scan this page
           </button>
           <p className="privacy">
@@ -514,7 +616,15 @@ export default function App({
           title="Scanning the rendered page"
           body="Checking WCAG 2.x A/AA and relevant best-practice rules."
           busy
-        />
+        >
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => void cancelScan()}
+          >
+            Cancel scan
+          </button>
+        </StatePanel>
       )}
 
       {phase === "error" && error && (
@@ -550,11 +660,33 @@ export default function App({
             <button
               className="secondary"
               type="button"
+              disabled={scanning}
               onClick={() => void scan()}
             >
               Rescan
             </button>
           </section>
+
+          {stale && (
+            <section className="stale-banner" role="alert">
+              <h2 ref={staleHeading} tabIndex={-1}>
+                These findings are out of date
+              </h2>
+              <p>{stale.reason}</p>
+              <p>
+                Highlighting is disabled until you rescan, so no element is
+                marked from a path that may now point somewhere else.
+              </p>
+              <button
+                className="primary"
+                type="button"
+                disabled={scanning}
+                onClick={() => void scan()}
+              >
+                Rescan page
+              </button>
+            </section>
+          )}
 
           <section className="counts" aria-label="Finding counts">
             <p>
@@ -566,21 +698,28 @@ export default function App({
             </p>
           </section>
 
-          {report.warnings.length > 0 && (
-            <aside className="warning">
-              <strong>Coverage note</strong>
+          <section className="coverage" aria-label="Scan coverage">
+            <h2>Coverage</h2>
+            <p>{scannedScopeSentence(report.coverage)}</p>
+            {report.coverage.cancelled && (
+              <p>This scan was cancelled before it finished.</p>
+            )}
+            <ul>
               {report.warnings.map((warning) => (
-                <p key={warning}>{warning}</p>
+                <li key={warning}>{warning}</li>
               ))}
-            </aside>
-          )}
+            </ul>
+          </section>
 
           {report.findings.length === 0 ? (
             <section className="clean-state">
-              <h2>No automated findings</h2>
+              <h2 ref={resultsHeading} tabIndex={-1}>
+                {coverageSummary(report.coverage, 0).headline}
+              </h2>
+              <p>{coverageSummary(report.coverage, 0).detail}</p>
               <p>
-                Nothing was flagged by this axe-core run. This does not prove
-                WCAG compliance; manual testing is still required.
+                Manual testing with people and assistive technology is still
+                required.
               </p>
             </section>
           ) : (
@@ -592,7 +731,9 @@ export default function App({
                     aria-label="Status"
                     value={status}
                     onChange={(event) =>
-                      setStatus(event.target.value as StatusFilter)
+                      applyFilter({
+                        status: event.target.value as StatusFilter,
+                      })
                     }
                   >
                     <option value="all">All statuses</option>
@@ -606,7 +747,9 @@ export default function App({
                     aria-label="Impact"
                     value={impact}
                     onChange={(event) =>
-                      setImpact(event.target.value as ImpactFilter)
+                      applyFilter({
+                        impact: event.target.value as ImpactFilter,
+                      })
                     }
                   >
                     <option value="all">All impacts</option>
@@ -621,6 +764,7 @@ export default function App({
                   className="overlay-toggle"
                   type="button"
                   aria-pressed={overlayVisible}
+                  disabled={stale !== undefined}
                   onClick={() => void toggleOverlay()}
                 >
                   {overlayVisible ? "Hide overlay" : "Show overlay"}
@@ -637,8 +781,12 @@ export default function App({
 
               <section className="results" aria-label="Accessibility findings">
                 <div className="results-heading">
-                  <h2>Findings</h2>
-                  <span>{filtered.length} shown</span>
+                  <h2 ref={resultsHeading} tabIndex={-1}>
+                    Findings
+                  </h2>
+                  <span>
+                    {filtered.length} of {report.findings.length} shown
+                  </span>
                 </div>
                 {filtered.length === 0 && (
                   <p className="filter-empty">
@@ -655,6 +803,7 @@ export default function App({
                       type="button"
                       className="finding-select"
                       aria-pressed={selected === finding.findingId}
+                      disabled={stale !== undefined}
                       onClick={() => void selectFinding(finding.findingId)}
                     >
                       <span className="finding-topline">
@@ -668,6 +817,11 @@ export default function App({
                           ? "Violation"
                           : "Needs review"}
                       </span>
+                      {finding.frame && finding.frame.depth > 0 && (
+                        <span className="finding-frame">
+                          In frame: {finding.frame.url}
+                        </span>
+                      )}
                       <span className="message">{finding.failureSummary}</span>
                       <code>{finding.evidence}</code>
                     </button>
@@ -691,8 +845,15 @@ export default function App({
                         <button
                           className="secondary"
                           type="button"
+                          ref={(node) =>
+                            void explainButtons.current.set(
+                              finding.findingId,
+                              node,
+                            )
+                          }
                           disabled={
                             !assistantSettings.enabled ||
+                            stale !== undefined ||
                             generation === "previewing" ||
                             generation === "generating"
                           }
@@ -789,6 +950,11 @@ export default function App({
                           setAssistantError(undefined);
                           setGeneration("idle");
                           setNotice("AI advisory dismissed");
+                          queueMicrotask(() =>
+                            explainButtons.current
+                              .get(finding.findingId)
+                              ?.focus(),
+                          );
                         }}
                       />
                     )}

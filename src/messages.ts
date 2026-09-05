@@ -4,7 +4,13 @@ import {
   type AssistantRequestV1,
   type AssistantResponseV1,
 } from "./assistant-contracts";
-import type { ScanReportV1 } from "./contracts";
+import type { ChildFrameDescriptorV1, FrameScanV1 } from "./aggregate";
+import type {
+  FindingV1,
+  FrameRefV1,
+  ScanCoverageV1,
+  ScanReportV1,
+} from "./contracts";
 import { SCHEMA_VERSION } from "./contracts";
 import {
   parseAssistantSettings,
@@ -18,7 +24,21 @@ export type ScanErrorCode =
   | "unsupported-page"
   | "permission-denied"
   | "scan-failed"
-  | "stale-finding";
+  | "stale-finding"
+  | "timeout"
+  | "cancelled"
+  | "frame-unreachable";
+
+const scanErrorCodes: readonly ScanErrorCode[] = [
+  "invalid-message",
+  "unsupported-page",
+  "permission-denied",
+  "scan-failed",
+  "stale-finding",
+  "timeout",
+  "cancelled",
+  "frame-unreachable",
+];
 
 export type ScanFailure = { code: ScanErrorCode; message: string };
 export type AssistantMessageErrorCode =
@@ -32,7 +52,18 @@ export type AssistantFailure = {
 
 export type ExtensionRequest =
   | { schemaVersion: typeof SCHEMA_VERSION; type: "get-state" }
-  | { schemaVersion: typeof SCHEMA_VERSION; type: "scan-request" }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "scan-request";
+      /** Present only on the background-to-frame leg of a scan. */
+      scan?: { scanId: string; frameId: number };
+    }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "scan-cancel" }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "scan-stale";
+      reason: string;
+    }
   | { schemaVersion: typeof SCHEMA_VERSION; type: "assistant-settings-get" }
   | {
       schemaVersion: typeof SCHEMA_VERSION;
@@ -49,7 +80,7 @@ export type ExtensionRequest =
   | {
       schemaVersion: typeof SCHEMA_VERSION;
       type: "overlay-command";
-      command: "show-all" | "hide" | "select" | "clear";
+      command: "show-all" | "hide" | "select" | "deselect" | "clear";
       findingId?: string;
     };
 
@@ -59,6 +90,9 @@ export type ExtensionResponse =
       type: "state-result";
       ok: true;
       report: ScanReportV1 | null;
+      /** Added after V1; absent means "not known to be stale". */
+      stale?: boolean;
+      staleReason?: string;
     }
   | {
       schemaVersion: typeof SCHEMA_VERSION;
@@ -67,6 +101,12 @@ export type ExtensionResponse =
       report: ScanReportV1;
     }
   | { schemaVersion: typeof SCHEMA_VERSION; type: "command-result"; ok: true }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "frame-scan-result";
+      ok: true;
+      frameScan: FrameScanV1;
+    }
   | {
       schemaVersion: typeof SCHEMA_VERSION;
       type: "assistant-settings-result";
@@ -100,7 +140,11 @@ export type ExtensionResponse =
     }
   | {
       schemaVersion: typeof SCHEMA_VERSION;
-      type: "scan-result" | "command-result" | "state-result";
+      type:
+        | "scan-result"
+        | "command-result"
+        | "state-result"
+        | "frame-scan-result";
       ok: false;
       error: ScanFailure;
     }
@@ -163,6 +207,131 @@ function exactKeys(
     );
 }
 
+function integer(value: unknown, label: string, minimum: number): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < minimum)
+    throw new MessageValidationError(
+      `${label} must be an integer of at least ${minimum}`,
+    );
+  return value;
+}
+
+const coverageReasons = [
+  "unsupported-url",
+  "missing-permission",
+  "cross-origin-frame",
+  "detached-frame",
+  "execution-failure",
+  "timeout",
+  "closed-shadow-root",
+];
+const coverageStates = ["scanned", "skipped", "failed"];
+const coverageKinds = ["document", "frame", "shadow-root"];
+
+function parseFrameRef(value: unknown, label: string): FrameRefV1 {
+  const frame = record(value, label);
+  return {
+    frameId: integer(frame.frameId, `${label}.frameId`, 0),
+    parentFrameId: integer(frame.parentFrameId, `${label}.parentFrameId`, -1),
+    url: string(frame.url, `${label}.url`),
+    depth: integer(frame.depth, `${label}.depth`, 0),
+  };
+}
+
+function parseCoverage(value: unknown): ScanCoverageV1 {
+  const coverage = record(value, "coverage");
+  if (typeof coverage.complete !== "boolean")
+    throw new MessageValidationError("coverage.complete must be a boolean");
+  const counts = record(coverage.ruleCounts, "coverage.ruleCounts");
+  number(counts.passes, "coverage.ruleCounts.passes");
+  number(counts.inapplicable, "coverage.ruleCounts.inapplicable");
+  if (
+    coverage.topDocument !== undefined &&
+    !coverageStates.includes(String(coverage.topDocument))
+  )
+    throw new MessageValidationError("coverage.topDocument is invalid");
+  if (coverage.frames !== undefined) {
+    const frames = record(coverage.frames, "coverage.frames");
+    (["discovered", "scanned", "skipped", "failed"] as const).forEach((key) =>
+      integer(frames[key], `coverage.frames.${key}`, 0),
+    );
+  }
+  if (coverage.shadowRoots !== undefined) {
+    const shadowRoots = record(coverage.shadowRoots, "coverage.shadowRoots");
+    (["openScanned", "closedEncountered"] as const).forEach((key) =>
+      integer(shadowRoots[key], `coverage.shadowRoots.${key}`, 0),
+    );
+  }
+  if (coverage.regions !== undefined) {
+    if (!Array.isArray(coverage.regions))
+      throw new MessageValidationError("coverage.regions must be an array");
+    coverage.regions.forEach((item, index) => {
+      const region = record(item, `coverage.regions[${index}]`);
+      if (!coverageKinds.includes(String(region.kind)))
+        throw new MessageValidationError(
+          `coverage.regions[${index}].kind is invalid`,
+        );
+      if (!coverageStates.includes(String(region.state)))
+        throw new MessageValidationError(
+          `coverage.regions[${index}].state is invalid`,
+        );
+      if (typeof region.detail !== "string")
+        throw new MessageValidationError(
+          `coverage.regions[${index}].detail must be a string`,
+        );
+      if (
+        region.reason !== undefined &&
+        !coverageReasons.includes(String(region.reason))
+      )
+        throw new MessageValidationError(
+          `coverage.regions[${index}].reason is invalid`,
+        );
+    });
+  }
+  ([["cancelled"], ["partial"]] as const).forEach(([key]) => {
+    if (coverage[key] !== undefined && typeof coverage[key] !== "boolean")
+      throw new MessageValidationError(`coverage.${key} must be a boolean`);
+  });
+  return coverage as unknown as ScanCoverageV1;
+}
+
+function parseFinding(value: unknown, label: string): FindingV1 {
+  const finding = record(value, label);
+  [
+    "findingId",
+    "ruleId",
+    "help",
+    "helpUrl",
+    "failureSummary",
+    "evidence",
+    "nodeRef",
+  ].forEach((key) => string(finding[key], `${label}.${key}`));
+  if (finding.status !== "violation" && finding.status !== "needs-review")
+    throw new MessageValidationError(`${label}.status is invalid`);
+  if (
+    !["critical", "serious", "moderate", "minor", "unknown"].includes(
+      String(finding.impact),
+    )
+  )
+    throw new MessageValidationError(`${label}.impact is invalid`);
+  strings(finding.tags, `${label}.tags`);
+  const locator = record(finding.locator, `${label}.locator`);
+  if (!Array.isArray(locator.segments) || locator.segments.length === 0)
+    throw new MessageValidationError(
+      `${label}.locator.segments must not be empty`,
+    );
+  locator.segments.forEach((item, segmentIndex) => {
+    const segment = record(item, `${label}.locator.segments[${segmentIndex}]`);
+    if (!["css", "frame", "shadow"].includes(String(segment.type)))
+      throw new MessageValidationError(
+        `${label}.locator segment type is invalid`,
+      );
+    string(segment.selector, `${label}.locator segment selector`);
+  });
+  if (finding.frame !== undefined)
+    parseFrameRef(finding.frame, `${label}.frame`);
+  return finding as unknown as FindingV1;
+}
+
 export function parseScanReport(value: unknown): ScanReportV1 {
   const report = versioned(value);
   string(report.scanId, "scanId");
@@ -176,12 +345,7 @@ export function parseScanReport(value: unknown): ScanReportV1 {
     throw new MessageValidationError("page.title must be a string");
   string(report.startedAt, "startedAt");
   number(report.durationMs, "durationMs");
-  const coverage = record(report.coverage, "coverage");
-  if (typeof coverage.complete !== "boolean")
-    throw new MessageValidationError("coverage.complete must be a boolean");
-  const counts = record(coverage.ruleCounts, "coverage.ruleCounts");
-  number(counts.passes, "coverage.ruleCounts.passes");
-  number(counts.inapplicable, "coverage.ruleCounts.inapplicable");
+  parseCoverage(report.coverage);
   strings(report.warnings, "warnings");
   if (!Array.isArray(report.skippedRegions))
     throw new MessageValidationError("skippedRegions must be an array");
@@ -195,52 +359,82 @@ export function parseScanReport(value: unknown): ScanReportV1 {
   });
   if (!Array.isArray(report.findings))
     throw new MessageValidationError("findings must be an array");
-  report.findings.forEach((item, index) => {
-    const finding = record(item, `findings[${index}]`);
-    [
-      "findingId",
-      "ruleId",
-      "help",
-      "helpUrl",
-      "failureSummary",
-      "evidence",
-      "nodeRef",
-    ].forEach((key) => string(finding[key], `findings[${index}].${key}`));
-    if (finding.status !== "violation" && finding.status !== "needs-review")
-      throw new MessageValidationError(`findings[${index}].status is invalid`);
-    if (
-      !["critical", "serious", "moderate", "minor", "unknown"].includes(
-        String(finding.impact),
-      )
-    )
-      throw new MessageValidationError(`findings[${index}].impact is invalid`);
-    strings(finding.tags, `findings[${index}].tags`);
-    const locator = record(finding.locator, `findings[${index}].locator`);
-    if (!Array.isArray(locator.segments) || locator.segments.length === 0)
+  report.findings.forEach((item, index) =>
+    parseFinding(item, `findings[${index}]`),
+  );
+  return report as unknown as ScanReportV1;
+}
+
+export function parseFrameScan(value: unknown): FrameScanV1 {
+  const frameScan = record(value, "frameScan");
+  string(frameScan.scanId, "frameScan.scanId");
+  string(frameScan.scannerVersion, "frameScan.scannerVersion");
+  integer(frameScan.frameId, "frameScan.frameId", 0);
+  integer(frameScan.parentFrameId, "frameScan.parentFrameId", -1);
+  integer(frameScan.depth, "frameScan.depth", 0);
+  string(frameScan.url, "frameScan.url");
+  integer(frameScan.openShadowRoots, "frameScan.openShadowRoots", 0);
+  integer(frameScan.closedShadowRoots, "frameScan.closedShadowRoots", 0);
+  if (
+    frameScan.shadowWalkTruncated !== undefined &&
+    typeof frameScan.shadowWalkTruncated !== "boolean"
+  )
+    throw new MessageValidationError(
+      "frameScan.shadowWalkTruncated must be a boolean",
+    );
+  const counts = record(frameScan.ruleCounts, "frameScan.ruleCounts");
+  number(counts.passes, "frameScan.ruleCounts.passes");
+  number(counts.inapplicable, "frameScan.ruleCounts.inapplicable");
+  if (!Array.isArray(frameScan.childFrames))
+    throw new MessageValidationError("frameScan.childFrames must be an array");
+  frameScan.childFrames.forEach((item, index) => {
+    const descriptor = record(item, `frameScan.childFrames[${index}]`);
+    string(descriptor.selector, `frameScan.childFrames[${index}].selector`);
+    string(descriptor.url, `frameScan.childFrames[${index}].url`);
+    if (typeof descriptor.sameOrigin !== "boolean")
       throw new MessageValidationError(
-        `findings[${index}].locator.segments must not be empty`,
+        `frameScan.childFrames[${index}].sameOrigin must be a boolean`,
       );
-    locator.segments.forEach((item, segmentIndex) => {
-      const segment = record(
-        item,
-        `findings[${index}].locator.segments[${segmentIndex}]`,
-      );
-      if (!["css", "frame", "shadow"].includes(String(segment.type)))
-        throw new MessageValidationError(
-          `findings[${index}].locator segment type is invalid`,
-        );
-      string(segment.selector, `findings[${index}].locator segment selector`);
-    });
+    return descriptor as unknown as ChildFrameDescriptorV1;
   });
-  return report as ScanReportV1;
+  if (!Array.isArray(frameScan.findings))
+    throw new MessageValidationError("frameScan.findings must be an array");
+  frameScan.findings.forEach((item, index) =>
+    parseFinding(item, `frameScan.findings[${index}]`),
+  );
+  return frameScan as unknown as FrameScanV1;
 }
 
 export function parseExtensionRequest(value: unknown): ExtensionRequest {
   const message = versioned(value);
   if (message.type === "get-state")
     return { schemaVersion: SCHEMA_VERSION, type: "get-state" };
-  if (message.type === "scan-request")
-    return { schemaVersion: SCHEMA_VERSION, type: "scan-request" };
+  if (message.type === "scan-request") {
+    exactKeys(message, ["schemaVersion", "type", "scan"], "message");
+    if (message.scan === undefined)
+      return { schemaVersion: SCHEMA_VERSION, type: "scan-request" };
+    const scan = record(message.scan, "scan");
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "scan-request",
+      scan: {
+        scanId: string(scan.scanId, "scan.scanId"),
+        frameId: integer(scan.frameId, "scan.frameId", 0),
+      },
+    };
+  }
+  if (message.type === "scan-cancel") {
+    exactKeys(message, ["schemaVersion", "type"], "message");
+    return { schemaVersion: SCHEMA_VERSION, type: "scan-cancel" };
+  }
+  if (message.type === "scan-stale") {
+    exactKeys(message, ["schemaVersion", "type", "reason"], "message");
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "scan-stale",
+      reason: string(message.reason, "reason"),
+    };
+  }
   if (message.type === "assistant-settings-get") {
     exactKeys(message, ["schemaVersion", "type"], "message");
     return { schemaVersion: SCHEMA_VERSION, type: "assistant-settings-get" };
@@ -280,7 +474,9 @@ export function parseExtensionRequest(value: unknown): ExtensionRequest {
       `Unknown message type: ${String(message.type)}`,
     );
   if (
-    !["show-all", "hide", "select", "clear"].includes(String(message.command))
+    !["show-all", "hide", "select", "deselect", "clear"].includes(
+      String(message.command),
+    )
   )
     throw new MessageValidationError(
       `Unknown overlay command: ${String(message.command)}`,
@@ -289,7 +485,12 @@ export function parseExtensionRequest(value: unknown): ExtensionRequest {
   return {
     schemaVersion: SCHEMA_VERSION,
     type: "overlay-command",
-    command: message.command as "show-all" | "hide" | "select" | "clear",
+    command: message.command as
+      | "show-all"
+      | "hide"
+      | "select"
+      | "deselect"
+      | "clear",
     ...(typeof message.findingId === "string"
       ? { findingId: message.findingId }
       : {}),
@@ -391,7 +592,8 @@ export function parseExtensionResponse(value: unknown): ExtensionResponse {
   if (
     message.type !== "scan-result" &&
     message.type !== "command-result" &&
-    message.type !== "state-result"
+    message.type !== "state-result" &&
+    message.type !== "frame-scan-result"
   )
     throw new MessageValidationError(
       `Unknown response type: ${String(message.type)}`,
@@ -404,28 +606,34 @@ export function parseExtensionResponse(value: unknown): ExtensionResponse {
         ok: true,
         report: parseScanReport(message.report),
       };
-    if (message.type === "state-result")
+    if (message.type === "state-result") {
+      if (message.stale !== undefined && typeof message.stale !== "boolean")
+        throw new MessageValidationError("stale must be a boolean");
       return {
         schemaVersion: SCHEMA_VERSION,
         type: "state-result",
         ok: true,
         report:
           message.report === null ? null : parseScanReport(message.report),
+        ...(message.stale === undefined ? {} : { stale: message.stale }),
+        ...(message.staleReason === undefined
+          ? {}
+          : { staleReason: string(message.staleReason, "staleReason") }),
+      };
+    }
+    if (message.type === "frame-scan-result")
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "frame-scan-result",
+        ok: true,
+        frameScan: parseFrameScan(message.frameScan),
       };
     return { schemaVersion: SCHEMA_VERSION, type: "command-result", ok: true };
   }
   if (message.ok !== false)
     throw new MessageValidationError("ok must be a boolean");
   const error = record(message.error, "error");
-  if (
-    ![
-      "invalid-message",
-      "unsupported-page",
-      "permission-denied",
-      "scan-failed",
-      "stale-finding",
-    ].includes(String(error.code))
-  )
+  if (!scanErrorCodes.includes(error.code as ScanErrorCode))
     throw new MessageValidationError("error.code is invalid");
   return {
     schemaVersion: SCHEMA_VERSION,

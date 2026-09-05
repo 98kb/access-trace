@@ -17,7 +17,9 @@
     "lint": "eslint .",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "postinstall": "wxt prepare"
+    "postinstall": "wxt prepare",
+    "package": "wxt zip",
+    "verify:build": "node scripts/verify-build.mjs"
   },
   "dependencies": {
     "axe-core": "4.13.0",
