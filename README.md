@@ -217,6 +217,12 @@ guarantees about any particular browser, page, or device.
   element that happens to match the old selector.
 - **The scan timed out or was cancelled.** Both are reported as their own state
   with a retry. Nothing is retried automatically.
+- **"Session expired. Please reconnect to GitHub."** Refresh token expired or access was revoked. Reconnect via Integrations options.
+- **"Missing repository access or installation."** Verify the GitHub App is installed on the organization/account with access to the target repository.
+- **"SAML / Organization restriction."** If your organization requires SAML SSO, grant SAML authorization for the app session.
+- **"GitHub API rate limit exceeded."** Wait for the rate limit window to reset before creating further issues or discovering repositories.
+- **"Issue creation outcome ambiguous."** A network timeout or connection reset occurred during issue creation. Check your mapped repository's Issues tab to verify whether the issue was created before retrying.
+- **"Configured label missing."** The mapped label was not found in the repository. The issue was created successfully without that label.
 
 ## Future scope (not implemented)
 

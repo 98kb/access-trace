@@ -47,6 +47,14 @@ The optional provider is an ordinary HTTP server on your machine:
 - an advisory never modifies a deterministic finding, its severity, or its
   standards references.
 
+### GitHub integration boundary
+
+- Credentials (access and refresh tokens) are background-owned, stored strictly in `chrome.storage.local`, and never exposed to the side panel, options page, or content scripts.
+- OAuth device flow and API calls talk exclusively to fixed HTTPS origins (`https://github.com` and `https://api.github.com`). Unsafe redirects are rejected.
+- Data reaches GitHub only after an exact-domain mapping is saved and the user explicitly clicks "Add issue on GitHub" for a specific finding.
+- Issue title and body fields are strictly sanitized: HTML brackets are escaped, backticks replaced, and `@mentions`, `#issue` references, and task list check syntax are neutralized to prevent Markdown injection.
+- Duplicate POST requests are never automatically retried on ambiguous network timeouts.
+
 ### Extension messages are validated
 
 Every message crossing the panel/background/scanner boundary is versioned and
