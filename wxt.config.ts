@@ -13,6 +13,8 @@ export default defineConfig({
       "http://127.0.0.1/*",
       "http://localhost/*",
       "http://[::1]/*",
+      "https://github.com/*",
+      "https://api.github.com/*",
     ],
     action: { default_title: "Open Accessibility Inspector" },
     // `connect-src` is deliberately omitted: CSP host-source grammar cannot

@@ -91,6 +91,19 @@ export default function App({
     response: AssistantResponseV1;
   }>();
   const [stale, setStale] = useState<{ reason: string } | undefined>();
+  const [githubIssues, setGithubIssues] = useState<
+    Record<
+      string,
+      {
+        status: "idle" | "creating" | "created" | "error";
+        issueNumber?: number;
+        htmlUrl?: string;
+        labelMissing?: boolean;
+        ambiguous?: boolean;
+        errorMsg?: string;
+      }
+    >
+  >({});
   const previewHeading = useRef<HTMLHeadingElement>(null);
   const advisoryHeading = useRef<HTMLHeadingElement>(null);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
@@ -517,6 +530,133 @@ export default function App({
     }
   };
 
+  const handleGitHubAction = async (findingId: string) => {
+    const currentState = githubIssues[findingId];
+    if (currentState?.status === "creating") return;
+
+    if (currentState?.status === "created" && currentState.htmlUrl) {
+      window.open(currentState.htmlUrl, "_blank", "noreferrer");
+      return;
+    }
+
+    setNotice("Checking GitHub configuration");
+    let checkRes: ExtensionResponse;
+    try {
+      checkRes = await send({
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-check-issue",
+        findingId,
+      });
+    } catch (caught) {
+      const msg = errorMessage(caught, "Could not check GitHub configuration.");
+      setNotice(msg);
+      setGithubIssues((prev) => ({
+        ...prev,
+        [findingId]: { status: "error", errorMsg: msg },
+      }));
+      return;
+    }
+
+    if (checkRes.type !== "github-check-issue-result" || !checkRes.ok) {
+      const msg = "Failed to check GitHub integration state.";
+      setNotice(msg);
+      return;
+    }
+
+    if (!checkRes.mapped) {
+      setNotice("Opening integration settings page");
+      await send({
+        schemaVersion: SCHEMA_VERSION,
+        type: "open-integrations-page",
+        ...(checkRes.domainKey ? { domainKey: checkRes.domainKey } : {}),
+      });
+      return;
+    }
+
+    if (checkRes.existing) {
+      setGithubIssues((prev) => ({
+        ...prev,
+        [findingId]: {
+          status: "created",
+          issueNumber: checkRes.existing!.issueNumber,
+          htmlUrl: checkRes.existing!.htmlUrl,
+        },
+      }));
+      window.open(checkRes.existing.htmlUrl, "_blank", "noreferrer");
+      return;
+    }
+
+    setGithubIssues((prev) => ({
+      ...prev,
+      [findingId]: { status: "creating" },
+    }));
+    setNotice("Creating issue on GitHub");
+
+    const opId = crypto.randomUUID();
+    let createRes: ExtensionResponse;
+    try {
+      createRes = await send({
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-create-issue",
+        findingId,
+        operationId: opId,
+      });
+    } catch (caught) {
+      const msg = errorMessage(caught, "GitHub network request failed.");
+      setNotice(msg);
+      setGithubIssues((prev) => ({
+        ...prev,
+        [findingId]: {
+          status: "error",
+          errorMsg: msg,
+          ambiguous: true,
+        },
+      }));
+      return;
+    }
+
+    if (createRes.type !== "github-create-issue-result") {
+      const msg = "Unexpected response from extension.";
+      setNotice(msg);
+      setGithubIssues((prev) => ({
+        ...prev,
+        [findingId]: { status: "error", errorMsg: msg },
+      }));
+      return;
+    }
+
+    if (!createRes.ok) {
+      setNotice(createRes.error.message);
+      setGithubIssues((prev) => ({
+        ...prev,
+        [findingId]: {
+          status: "error",
+          errorMsg: createRes.error.message,
+          ambiguous: createRes.error.ambiguous,
+        },
+      }));
+      return;
+    }
+
+    setGithubIssues((prev) => ({
+      ...prev,
+      [findingId]: {
+        status: "created",
+        issueNumber: createRes.issueNumber,
+        htmlUrl: createRes.htmlUrl,
+        labelMissing: createRes.labelMissing,
+      },
+    }));
+
+    if (createRes.labelMissing) {
+      setNotice(
+        `Issue #${createRes.issueNumber} created on GitHub without the configured label`,
+      );
+    } else {
+      setNotice(`Issue #${createRes.issueNumber} created on GitHub`);
+    }
+  };
+
   const matching = useMemo(
     () => (nextStatus: StatusFilter, nextImpact: ImpactFilter) =>
       report?.findings.filter(
@@ -831,14 +971,24 @@ export default function App({
                           <li key={tag}>{tag}</li>
                         ))}
                       </ul>
-                      <a
-                        href={finding.helpUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Rule help
-                        <span className="sr-only"> for {finding.ruleId}</span>
-                      </a>
+                      <div className="finding-footer-actions">
+                        <a
+                          href={finding.helpUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Rule help
+                          <span className="sr-only"> for {finding.ruleId}</span>
+                        </a>
+                        <GitHubFindingAction
+                          findingId={finding.findingId}
+                          issueState={githubIssues[finding.findingId]}
+                          disabled={stale !== undefined}
+                          onAction={() =>
+                            void handleGitHubAction(finding.findingId)
+                          }
+                        />
+                      </div>
                     </footer>
                     {finding.status === "violation" && (
                       <div className="assistant-actions">
@@ -1175,5 +1325,76 @@ function StatePanel({
       <p>{body}</p>
       {children}
     </section>
+  );
+}
+
+function GitHubFindingAction({
+  issueState,
+  disabled,
+  onAction,
+}: {
+  findingId?: string;
+  issueState?: {
+    status: "idle" | "creating" | "created" | "error";
+    issueNumber?: number;
+    htmlUrl?: string;
+    labelMissing?: boolean;
+    ambiguous?: boolean;
+    errorMsg?: string;
+  };
+  disabled?: boolean;
+  onAction: () => void;
+}) {
+  const isCreated =
+    issueState?.status === "created" && Boolean(issueState.htmlUrl);
+  const isCreating = issueState?.status === "creating";
+  const label = isCreated ? "View GitHub issue" : "Add issue on GitHub";
+
+  if (isCreated && issueState?.htmlUrl) {
+    return (
+      <a
+        className="github-action-btn created"
+        href={issueState.htmlUrl}
+        target="_blank"
+        rel="noreferrer"
+        title={label}
+        aria-label={label}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GitHubIcon />
+        <span className="sr-only">{label}</span>
+      </a>
+    );
+  }
+
+  return (
+    <button
+      className={`github-action-btn ${isCreating ? "busy" : ""}`}
+      type="button"
+      disabled={disabled || isCreating}
+      title={label}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onAction();
+      }}
+    >
+      <GitHubIcon />
+      <span className="sr-only">{label}</span>
+    </button>
+  );
+}
+
+function GitHubIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+    >
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
   );
 }

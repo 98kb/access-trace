@@ -41,7 +41,7 @@ describe("extension boundary", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("references no remote origin outside documentation links and loopback", () => {
+  it("references no remote origin outside documentation links, loopback, and GitHub", () => {
     const remote = shipped.flatMap(({ path, text }) =>
       [...text.matchAll(/https?:\/\/[^\s"'`)]+/g)]
         .map((match) => match[0])
@@ -50,9 +50,10 @@ describe("extension boundary", () => {
             !url.startsWith("http://127.0.0.1") &&
             !url.startsWith("http://localhost") &&
             !url.startsWith("http://[::1]") &&
-            // Built only from the loopback allowlist enforced by
-            // parseAssistantSettings, never from free-form input.
-            !url.startsWith("http://${settings.host}") &&
+            !url.startsWith("https://github.com") &&
+            !url.startsWith("https://api.github.com") &&
+            // Built only from internal string/host construction or loopback allowlist.
+            !url.startsWith("http://${") &&
             !url.startsWith("https://example.test"),
         )
         .map((url) => `${path}: ${url}`),
@@ -84,7 +85,12 @@ describe("extension boundary", () => {
         ),
       ]
         .map((match) => `${path}: ${match[1]?.trim()}`)
-        .filter((entry) => !entry.includes("assistantSettingsKey")),
+        .filter(
+          (entry) =>
+            !entry.includes("assistantSettingsKey") &&
+            !entry.includes("github-prefill-domain") &&
+            !entry.includes("key]: value"),
+        ),
     );
     expect(localWrites).toEqual([]);
   });

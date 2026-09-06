@@ -18,6 +18,18 @@ import {
   type AssistantProviderIdentity,
   type AssistantSettingsV1,
 } from "./ollama";
+import type {
+  DeviceFlowCodeResponse,
+  DomainRepositoryMappingV1,
+  GitHubConnectionViewV1,
+  GitHubLabelV1,
+  GitHubRepositoryV1,
+} from "./github/contracts";
+import {
+  parseDomainRepositoryMapping,
+  parseGitHubConnectionView,
+} from "./github/contracts";
+import type { DevicePollResult } from "./github/auth";
 
 export type ScanErrorCode =
   | "invalid-message"
@@ -48,6 +60,12 @@ export type AssistantMessageErrorCode =
 export type AssistantFailure = {
   code: AssistantMessageErrorCode;
   message: string;
+};
+
+export type GitHubFailure = {
+  code: string;
+  message: string;
+  ambiguous?: boolean;
 };
 
 export type ExtensionRequest =
@@ -82,6 +100,45 @@ export type ExtensionRequest =
       type: "overlay-command";
       command: "show-all" | "hide" | "select" | "deselect" | "clear";
       findingId?: string;
+    }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "github-get-state" }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "github-start-device-flow" }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "github-poll-device-flow" }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "github-cancel-device-flow" }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "github-disconnect" }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "github-list-repositories" }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-list-labels";
+      owner: string;
+      repo: string;
+    }
+  | { schemaVersion: typeof SCHEMA_VERSION; type: "github-get-mappings" }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-save-mapping";
+      mapping: DomainRepositoryMappingV1;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-delete-mapping";
+      domainKey: string;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-create-issue";
+      findingId: string;
+      operationId: string;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-check-issue";
+      findingId: string;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "open-integrations-page";
+      domainKey?: string;
     };
 
 export type ExtensionResponse =
@@ -140,6 +197,64 @@ export type ExtensionResponse =
     }
   | {
       schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-state-result";
+      ok: true;
+      connection: GitHubConnectionViewV1;
+      permissionGranted: boolean;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-device-flow-start-result";
+      ok: true;
+      flow: DeviceFlowCodeResponse;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-device-flow-poll-result";
+      ok: true;
+      result: DevicePollResult;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-repositories-result";
+      ok: true;
+      repositories: GitHubRepositoryV1[];
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-labels-result";
+      ok: true;
+      labels: GitHubLabelV1[];
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-mappings-result";
+      ok: true;
+      mappings: DomainRepositoryMappingV1[];
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-create-issue-result";
+      ok: true;
+      issueNumber: number;
+      htmlUrl: string;
+      labelMissing: boolean;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-check-issue-result";
+      ok: true;
+      existing: { issueNumber: number; htmlUrl: string } | null;
+      mapped: boolean;
+      domainKey: string | null;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type: "github-command-result";
+      ok: true;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
       type:
         | "scan-result"
         | "command-result"
@@ -158,6 +273,21 @@ export type ExtensionResponse =
         | "assistant-command-result";
       ok: false;
       error: AssistantFailure;
+    }
+  | {
+      schemaVersion: typeof SCHEMA_VERSION;
+      type:
+        | "github-state-result"
+        | "github-device-flow-start-result"
+        | "github-device-flow-poll-result"
+        | "github-repositories-result"
+        | "github-labels-result"
+        | "github-mappings-result"
+        | "github-create-issue-result"
+        | "github-check-issue-result"
+        | "github-command-result";
+      ok: false;
+      error: GitHubFailure;
     };
 
 export class MessageValidationError extends Error {}
@@ -469,6 +599,64 @@ export function parseExtensionRequest(value: unknown): ExtensionRequest {
       findingId: string(message.findingId, "findingId"),
     };
   }
+  if (
+    message.type === "github-get-state" ||
+    message.type === "github-start-device-flow" ||
+    message.type === "github-poll-device-flow" ||
+    message.type === "github-cancel-device-flow" ||
+    message.type === "github-disconnect" ||
+    message.type === "github-list-repositories" ||
+    message.type === "github-get-mappings"
+  ) {
+    return { schemaVersion: SCHEMA_VERSION, type: message.type };
+  }
+  if (message.type === "github-list-labels") {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "github-list-labels",
+      owner: string(message.owner, "owner"),
+      repo: string(message.repo, "repo"),
+    };
+  }
+  if (message.type === "github-save-mapping") {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "github-save-mapping",
+      mapping: parseDomainRepositoryMapping(message.mapping),
+    };
+  }
+  if (message.type === "github-delete-mapping") {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "github-delete-mapping",
+      domainKey: string(message.domainKey, "domainKey"),
+    };
+  }
+  if (message.type === "github-create-issue") {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "github-create-issue",
+      findingId: string(message.findingId, "findingId"),
+      operationId: string(message.operationId, "operationId"),
+    };
+  }
+  if (message.type === "github-check-issue") {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "github-check-issue",
+      findingId: string(message.findingId, "findingId"),
+    };
+  }
+  if (message.type === "open-integrations-page") {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "open-integrations-page",
+      ...(typeof message.domainKey === "string"
+        ? { domainKey: message.domainKey }
+        : {}),
+    };
+  }
+
   if (message.type !== "overlay-command")
     throw new MessageValidationError(
       `Unknown message type: ${String(message.type)}`,
@@ -499,6 +687,133 @@ export function parseExtensionRequest(value: unknown): ExtensionRequest {
 
 export function parseExtensionResponse(value: unknown): ExtensionResponse {
   const message = versioned(value);
+  const githubTypes = [
+    "github-state-result",
+    "github-device-flow-start-result",
+    "github-device-flow-poll-result",
+    "github-repositories-result",
+    "github-labels-result",
+    "github-mappings-result",
+    "github-create-issue-result",
+    "github-check-issue-result",
+    "github-command-result",
+  ];
+  if (githubTypes.includes(String(message.type))) {
+    if (message.ok === false) {
+      const error = record(message.error, "error");
+      const errorType = message.type as Extract<
+        ExtensionResponse,
+        { ok: false; error: GitHubFailure }
+      >["type"];
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: errorType,
+        ok: false,
+        error: {
+          code: string(error.code, "error.code"),
+          message: string(error.message, "error.message"),
+          ...(typeof error.ambiguous === "boolean"
+            ? { ambiguous: error.ambiguous }
+            : {}),
+        },
+      } as ExtensionResponse;
+    }
+    if (message.ok !== true)
+      throw new MessageValidationError("ok must be a boolean");
+    if (message.type === "github-state-result") {
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-state-result",
+        ok: true,
+        connection: parseGitHubConnectionView(message.connection),
+        permissionGranted: Boolean(message.permissionGranted),
+      };
+    }
+    if (message.type === "github-device-flow-start-result") {
+      const flow = record(message.flow, "flow");
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-device-flow-start-result",
+        ok: true,
+        flow: {
+          userCode: string(flow.userCode, "userCode"),
+          verificationUri: string(flow.verificationUri, "verificationUri"),
+          expiresIn: number(flow.expiresIn, "expiresIn"),
+          interval: number(flow.interval, "interval"),
+        } as DeviceFlowCodeResponse,
+      };
+    }
+    if (message.type === "github-device-flow-poll-result") {
+      const result = record(message.result, "result");
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-device-flow-poll-result",
+        ok: true,
+        result: result as unknown as DevicePollResult,
+      };
+    }
+    if (message.type === "github-repositories-result") {
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-repositories-result",
+        ok: true,
+        repositories: (message.repositories as GitHubRepositoryV1[]) ?? [],
+      };
+    }
+    if (message.type === "github-labels-result") {
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-labels-result",
+        ok: true,
+        labels: (message.labels as GitHubLabelV1[]) ?? [],
+      };
+    }
+    if (message.type === "github-mappings-result") {
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-mappings-result",
+        ok: true,
+        mappings: (Array.isArray(message.mappings) ? message.mappings : []).map(
+          parseDomainRepositoryMapping,
+        ),
+      };
+    }
+    if (message.type === "github-create-issue-result") {
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-create-issue-result",
+        ok: true,
+        issueNumber: number(message.issueNumber, "issueNumber"),
+        htmlUrl: string(message.htmlUrl, "htmlUrl"),
+        labelMissing: Boolean(message.labelMissing),
+      };
+    }
+    if (message.type === "github-check-issue-result") {
+      const existingObj = message.existing
+        ? record(message.existing, "existing")
+        : null;
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        type: "github-check-issue-result",
+        ok: true,
+        existing: existingObj
+          ? {
+              issueNumber: number(existingObj.issueNumber, "issueNumber"),
+              htmlUrl: string(existingObj.htmlUrl, "htmlUrl"),
+            }
+          : null,
+        mapped: Boolean(message.mapped),
+        domainKey:
+          typeof message.domainKey === "string" ? message.domainKey : null,
+      };
+    }
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      type: "github-command-result",
+      ok: true,
+    };
+  }
+
   const assistantTypes = [
     "assistant-settings-result",
     "assistant-test-result",

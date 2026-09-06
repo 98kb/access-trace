@@ -126,6 +126,29 @@ Advisories are validated, rendered as text, kept separate from Axe findings, and
 never written to sync storage. "Local" means the evidence goes to the configured
 process on your device; it does not mean that process is risk-free.
 
+## Optional GitHub issue creation
+
+Create well-formed GitHub issues directly from deterministic accessibility findings in the side panel:
+
+1. Register a GitHub App with **Metadata: read** and **Issues: read and write** permissions. Enable **Device Flow** and **Expiring user-to-server tokens**.
+2. Configure `VITE_GITHUB_APP_CLIENT_ID` in `.env` (using `.env.example` as a template) and run `pnpm build`.
+3. Open the options page at `/integrations` (or click **Add issue on GitHub** on a finding card to navigate there).
+4. Grant the optional host permission for `https://github.com/*` and `https://api.github.com/*`.
+5. Connect your GitHub App via device flow user code.
+6. Map an exact domain (e.g. `example.com` or `localhost:3000`) to one accessible GitHub repository and an optional repository label.
+7. Click **Add issue on GitHub** on any finding card in the side panel to create a sanitized issue.
+8. On success, the action turns into **View GitHub issue** and links directly to the created issue.
+
+### Exact data sent in a GitHub issue
+
+- Finding rule ID, impact, status, help text, help URL, and WCAG tags
+- Page origin and sanitized pathname (query strings, hashes, and credentials removed)
+- Sanitized element snippet and failure summary
+- Scanner name and version (`axe-core x.y.z`)
+- Deterministic finding fingerprint marker (`<!-- a11y-scan:finding:{fingerprint} -->`)
+
+No screenshots, full DOM, form values, cookies, headers, local storage, query parameters, or AI output are ever sent to GitHub.
+
 ## Permissions
 
 | Permission                                                              | Why it is needed                                                                                                                                    |
@@ -133,11 +156,11 @@ process on your device; it does not mean that process is risk-free.
 | `activeTab`                                                             | Grants temporary access to the tab you are inspecting, only after you invoke the extension. This is what avoids a broad host permission.            |
 | `scripting`                                                             | Injects the scanner into the inspected tab's frames when you press Scan.                                                                            |
 | `sidePanel`                                                             | Opens the native side panel used as the whole interface.                                                                                            |
-| `storage`                                                               | Session storage for the current tab's scan; local storage for your local AI configuration only.                                                     |
+| `storage`                                                               | Session storage for the current tab's scan; local storage for local AI and GitHub integration configuration only.                                   |
 | `http://127.0.0.1/*`, `http://localhost/*`, `http://[::1]/*` (optional) | Requested only when you enable local AI, so the background worker can reach the loopback provider you configured. Not present in a default install. |
+| `https://github.com/*`, `https://api.github.com/*` (optional)           | Requested only when you connect GitHub in Integrations, so the background worker can perform device auth and post issues.                           |
 
-There are no host permissions in a production build. `pnpm verify:build`
-asserts this.
+There are no host permissions in a default installation. `pnpm verify:build` asserts this.
 
 ## Architecture
 

@@ -43,9 +43,15 @@ check(
 check(
   JSON.stringify([...(manifest.optional_host_permissions ?? [])].sort()) ===
     JSON.stringify(
-      ["http://127.0.0.1/*", "http://localhost/*", "http://[::1]/*"].sort(),
+      [
+        "http://127.0.0.1/*",
+        "http://localhost/*",
+        "http://[::1]/*",
+        "https://github.com/*",
+        "https://api.github.com/*",
+      ].sort(),
     ),
-  `Optional host permissions must stay loopback-only: ${JSON.stringify(manifest.optional_host_permissions)}`,
+  `Optional host permissions must include loopback and GitHub origins: ${JSON.stringify(manifest.optional_host_permissions)}`,
 );
 check(
   /script-src 'self'/.test(
@@ -81,6 +87,8 @@ const informationalOrigins = [
   "https://react.dev/errors/",
   "https://www.deque.com",
   "https://accessibilityinsights.io",
+  "https://github.com",
+  "https://api.github.com",
 ];
 // Loopback endpoints built from the validated allowlist survive minification as
 // template literals with an interpolated host.

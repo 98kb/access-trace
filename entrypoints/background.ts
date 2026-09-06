@@ -27,6 +27,13 @@ import {
 } from "../src/ollama";
 import { createScanCoordinator, ExpectedScanError } from "../src/orchestrator";
 import { createTabStateStore } from "../src/tab-state";
+import { GitHubAuthManager } from "../src/github/auth";
+import { getGitHubAppConfig } from "../src/github/config";
+import { GitHubDiscoveryClient } from "../src/github/discovery";
+import { getDomainKeyFromUrl } from "../src/github/domain";
+import { GitHubIssueManager } from "../src/github/issue";
+import { DomainMappingStore } from "../src/github/mappings";
+import { chromeLocalStorage } from "../src/github/storage";
 
 const assistantSettingsKey = "assistant-settings:v1";
 const provider = new OllamaAssistantProvider();
@@ -34,6 +41,23 @@ const generations = new Map<number, AbortController>();
 const state = createTabStateStore(chrome.storage.session, () =>
   new Date().toISOString(),
 );
+
+const githubConfig = getGitHubAppConfig();
+const githubAuth = new GitHubAuthManager({
+  config: githubConfig,
+  storage: chromeLocalStorage,
+});
+const domainMappings = new DomainMappingStore(chromeLocalStorage);
+const githubDiscovery = new GitHubDiscoveryClient();
+const githubIssueManager = new GitHubIssueManager({
+  storage: chromeLocalStorage,
+});
+
+async function hasGitHubPermission(): Promise<boolean> {
+  return chrome.permissions.contains({
+    origins: ["https://github.com/*", "https://api.github.com/*"],
+  });
+}
 
 const transport: FrameTransport = {
   async inject(tabId) {
@@ -242,6 +266,36 @@ function assistantResponseType(raw: unknown) {
   return undefined;
 }
 
+function githubResponseType(raw: unknown) {
+  const type =
+    raw && typeof raw === "object"
+      ? String((raw as { type?: unknown }).type)
+      : "";
+  if (type === "github-get-state") return "github-state-result" as const;
+  if (type === "github-start-device-flow")
+    return "github-device-flow-start-result" as const;
+  if (type === "github-poll-device-flow")
+    return "github-device-flow-poll-result" as const;
+  if (type === "github-cancel-device-flow" || type === "github-disconnect")
+    return "github-command-result" as const;
+  if (type === "github-list-repositories")
+    return "github-repositories-result" as const;
+  if (type === "github-list-labels") return "github-labels-result" as const;
+  if (
+    type === "github-get-mappings" ||
+    type === "github-save-mapping" ||
+    type === "github-delete-mapping"
+  )
+    return "github-mappings-result" as const;
+  if (type === "github-create-issue")
+    return "github-create-issue-result" as const;
+  if (type === "github-check-issue")
+    return "github-check-issue-result" as const;
+  if (type === "open-integrations-page")
+    return "github-command-result" as const;
+  return undefined;
+}
+
 export default defineBackground(() => {
   chrome.action.onClicked.addListener((tab) => {
     if (tab.id) void chrome.sidePanel.open({ tabId: tab.id });
@@ -278,8 +332,282 @@ export default defineBackground(() => {
             "This operation is only available to the extension panel.",
           );
 
+        if (request.type === "github-get-state") {
+          const view = await githubAuth.getConnectionView();
+          const perm = await hasGitHubPermission();
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-state-result",
+            ok: true,
+            connection: view,
+            permissionGranted: perm,
+          };
+        }
+        if (request.type === "github-start-device-flow") {
+          const flow = await githubAuth.startDeviceFlow();
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-device-flow-start-result",
+            ok: true,
+            flow,
+          };
+        }
+        if (request.type === "github-poll-device-flow") {
+          const pollResult = await githubAuth.pollDeviceFlowStep();
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-device-flow-poll-result",
+            ok: true,
+            result: pollResult,
+          };
+        }
+        if (request.type === "github-cancel-device-flow") {
+          githubAuth.cancelDeviceFlow();
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-command-result",
+            ok: true,
+          };
+        }
+        if (request.type === "github-disconnect") {
+          await githubAuth.disconnect();
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-command-result",
+            ok: true,
+          };
+        }
+        if (request.type === "github-list-repositories") {
+          const token = await githubAuth.getValidAccessToken();
+          if (!token) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-repositories-result",
+              ok: false,
+              error: {
+                code: "unauthenticated",
+                message: "GitHub authentication required.",
+              },
+            };
+          }
+          const repos = await githubDiscovery.listAccessibleRepositories(token);
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-repositories-result",
+            ok: true,
+            repositories: repos,
+          };
+        }
+        if (request.type === "github-list-labels") {
+          const token = await githubAuth.getValidAccessToken();
+          if (!token) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-labels-result",
+              ok: false,
+              error: {
+                code: "unauthenticated",
+                message: "GitHub authentication required.",
+              },
+            };
+          }
+          const labels = await githubDiscovery.listRepositoryLabels(
+            token,
+            request.owner,
+            request.repo,
+          );
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-labels-result",
+            ok: true,
+            labels,
+          };
+        }
+        if (request.type === "github-get-mappings") {
+          const mappings = await domainMappings.getMappings();
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-mappings-result",
+            ok: true,
+            mappings,
+          };
+        }
+        if (request.type === "github-save-mapping") {
+          await domainMappings.saveMapping(request.mapping);
+          const mappings = await domainMappings.getMappings();
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-mappings-result",
+            ok: true,
+            mappings,
+          };
+        }
+        if (request.type === "github-delete-mapping") {
+          await domainMappings.deleteMapping(request.domainKey);
+          const mappings = await domainMappings.getMappings();
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-mappings-result",
+            ok: true,
+            mappings,
+          };
+        }
+        if (request.type === "open-integrations-page") {
+          if (request.domainKey) {
+            await chrome.storage.local.set({
+              "github-prefill-domain": request.domainKey,
+            });
+          }
+          await chrome.runtime.openOptionsPage();
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-command-result",
+            ok: true,
+          };
+        }
+
         const tab = await activeTab();
         const tabId = tab.id!;
+
+        if (request.type === "github-check-issue") {
+          const domainKey = tab.url ? getDomainKeyFromUrl(tab.url) : null;
+          if (!domainKey) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-check-issue-result",
+              ok: true,
+              existing: null,
+              mapped: false,
+              domainKey: null,
+            };
+          }
+          const mapping = await domainMappings.getMappingForDomain(domainKey);
+          if (!mapping) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-check-issue-result",
+              ok: true,
+              existing: null,
+              mapped: false,
+              domainKey,
+            };
+          }
+          const current = await state.read(tabId);
+          const finding = current?.report?.findings.find(
+            (item) => item.findingId === request.findingId,
+          );
+          if (!current?.report || current.stale || !finding) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-check-issue-result",
+              ok: true,
+              existing: null,
+              mapped: true,
+              domainKey,
+            };
+          }
+          const existing = await githubIssueManager.getExistingIssueRecord(
+            mapping.repository.id,
+            domainKey,
+            tab.url!,
+            finding,
+          );
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-check-issue-result",
+            ok: true,
+            existing,
+            mapped: true,
+            domainKey,
+          };
+        }
+
+        if (request.type === "github-create-issue") {
+          const current = await state.read(tabId);
+          const finding = current?.report?.findings.find(
+            (item) => item.findingId === request.findingId,
+          );
+          if (!current?.report || current.stale || !finding) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-create-issue-result",
+              ok: false,
+              error: {
+                code: "stale-finding",
+                message: "The page changed. Rescan before creating an issue.",
+              },
+            };
+          }
+          const domainKey = tab.url ? getDomainKeyFromUrl(tab.url) : null;
+          if (!domainKey) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-create-issue-result",
+              ok: false,
+              error: {
+                code: "unsupported-page",
+                message:
+                  "This page URL is not supported for GitHub issue creation.",
+              },
+            };
+          }
+          const mapping = await domainMappings.getMappingForDomain(domainKey);
+          if (!mapping) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-create-issue-result",
+              ok: false,
+              error: {
+                code: "no-mapping",
+                message: `No repository mapping configured for domain ${domainKey}.`,
+              },
+            };
+          }
+          const token = await githubAuth.getValidAccessToken();
+          if (!token) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-create-issue-result",
+              ok: false,
+              error: {
+                code: "unauthenticated",
+                message:
+                  "GitHub connection expired or missing. Please reconnect at /integrations.",
+              },
+            };
+          }
+
+          const issueResult = await githubIssueManager.createIssue({
+            accessToken: token,
+            mapping,
+            finding,
+            pageUrl: tab.url!,
+            scannerInfo: current.report.scanner,
+            operationId: request.operationId,
+          });
+
+          if (!issueResult.ok) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-create-issue-result",
+              ok: false,
+              error: {
+                code: issueResult.error.code,
+                message: issueResult.error.message,
+                ...(issueResult.ambiguous ? { ambiguous: true } : {}),
+              },
+            };
+          }
+
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: "github-create-issue-result",
+            ok: true,
+            issueNumber: issueResult.issueNumber,
+            htmlUrl: issueResult.htmlUrl,
+            labelMissing: issueResult.labelMissing,
+          };
+        }
 
         if (request.type === "assistant-settings-get") {
           const settings = await assistantSettings();
@@ -543,6 +871,23 @@ export default defineBackground(() => {
               error: outcome.error,
             };
       } catch (error) {
+        const githubType = githubResponseType(raw);
+        if (githubType)
+          return {
+            schemaVersion: SCHEMA_VERSION,
+            type: githubType,
+            ok: false,
+            error: {
+              code:
+                error instanceof ExpectedScanError
+                  ? error.code
+                  : "github-error",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "The GitHub integration request failed.",
+            },
+          } as ExtensionResponse;
         const assistantType = assistantResponseType(raw);
         if (assistantType)
           return {

@@ -37,24 +37,23 @@ The only value kept in long-lived local storage is your local AI configuration:
 whether the feature is enabled, the loopback host, the port, the model name, and
 the timeout. No page content is stored there.
 
-## What can be sent to a configured local process
+## The three privacy boundaries
 
-Nothing is sent anywhere unless you enable local AI, grant Chrome's loopback
-permission, choose **Explain with local AI** on a single violation, review the
-displayed evidence, and then choose **Send displayed evidence**.
+1. **Deterministic scans remain on-device:** Standard scanning makes no network request whatsoever. Page content stays entirely inside Chrome session storage.
+2. **Optional local AI remains explicit and loopback-only:** Evidence is sent only after explicit confirmation per finding to the configured loopback process on your device.
+3. **GitHub Integration requires user setup and per-finding action:** Data is sent to GitHub only after you connect a GitHub App, map an exact domain to a repository, and explicitly activate **Add issue on GitHub** for a specific finding.
 
-Only what the preview shows is sent, to the loopback address you configured:
+## What can be sent to GitHub
 
-- the rule identifier, source, status, severity, tags, help text, and failure
-  summary of that one finding;
-- the element's tag name, semantic role, accessible name, allowlisted
-  non-sensitive attributes, short visible text, and, for `color-contrast` only,
-  the relevant computed colours and font metrics.
+When you activate **Add issue on GitHub** for a finding on a mapped domain, the extension sends only:
 
-The request goes to `http://127.0.0.1`, `http://localhost`, or `http://[::1]` on
-the port you set. Other hosts are rejected before a request is made, and
-redirects are refused. "Local" means the process runs on your machine; it does
-not mean that process is risk-free.
+- Finding rule ID, impact, status, help text, help URL, and WCAG tags
+- Page origin and sanitized pathname (query parameters, URL fragments, username, and password removed)
+- Text-escaped element snippet and failure summary
+- Scanner engine name and version (`axe-core x.y.z`)
+- Hidden deterministic finding fingerprint marker (`<!-- a11y-scan:finding:{fingerprint} -->`)
+
+No screenshots, full DOM, form values, cookies, headers, local storage, query parameters, or AI advisory text are ever sent to GitHub. Authentication tokens are stored strictly in `chrome.storage.local` in the background service worker and are never sent to content scripts, inspected pages, side panels, options UI, or persistent debug logs.
 
 ## What is never collected
 
