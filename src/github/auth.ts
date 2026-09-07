@@ -1,4 +1,5 @@
-import type { GitHubAppConfig } from "./config";
+import { resolveGitHubInstallationUrl, type GitHubAppConfig } from "./config";
+export { resolveGitHubInstallationUrl };
 import {
   GITHUB_SCHEMA_VERSION,
   parseGitHubCredential,
@@ -44,7 +45,7 @@ export class GitHubAuthManager {
   constructor(options: GitHubAuthManagerOptions) {
     this.config = options.config;
     this.storage = options.storage;
-    this.fetchImpl = options.fetch ?? globalThis.fetch;
+    this.fetchImpl = (options.fetch ?? globalThis.fetch).bind(globalThis);
   }
 
   public updateConfig(config: GitHubAppConfig | null): void {
@@ -69,6 +70,10 @@ export class GitHubAuthManager {
       };
     }
 
+    const installationUrl = this.config.installationUrl
+      ? resolveGitHubInstallationUrl(this.config.installationUrl)
+      : null;
+
     if (this.connectingState) {
       return {
         schemaVersion: GITHUB_SCHEMA_VERSION,
@@ -78,6 +83,7 @@ export class GitHubAuthManager {
           ? new Date(this.activeExpiresAtMs).toISOString()
           : null,
         error: null,
+        installationUrl,
       };
     }
 
@@ -89,11 +95,15 @@ export class GitHubAuthManager {
         user: null,
         expiresAt: null,
         error: null,
+        installationUrl,
       };
     }
 
     // Check if refresh token is expired
-    if (new Date(cred.refreshTokenExpiresAt).getTime() <= Date.now()) {
+    if (
+      cred.refreshTokenExpiresAt &&
+      new Date(cred.refreshTokenExpiresAt).getTime() <= Date.now()
+    ) {
       await this.clearCredentials();
       return {
         schemaVersion: GITHUB_SCHEMA_VERSION,
@@ -104,12 +114,13 @@ export class GitHubAuthManager {
           ...(cred.userName ? { name: cred.userName } : {}),
           ...(cred.userAvatarUrl ? { avatarUrl: cred.userAvatarUrl } : {}),
         },
-        expiresAt: cred.accessTokenExpiresAt,
+        expiresAt: cred.accessTokenExpiresAt ?? null,
         error: {
           code: "token-expired",
           message:
             "Authorization expired. Please reconnect your GitHub account.",
         },
+        installationUrl,
       };
     }
 
@@ -124,8 +135,9 @@ export class GitHubAuthManager {
       schemaVersion: GITHUB_SCHEMA_VERSION,
       state: "connected",
       user,
-      expiresAt: cred.accessTokenExpiresAt,
+      expiresAt: cred.accessTokenExpiresAt ?? null,
       error: null,
+      installationUrl,
     };
   }
 
@@ -212,30 +224,46 @@ export class GitHubAuthManager {
       };
     }
 
-    const res = await this.fetchImpl(
-      "https://github.com/login/oauth/access_token",
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
+    let res: Response;
+    try {
+      res = await this.fetchImpl(
+        "https://github.com/login/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            client_id: this.config.clientId,
+            device_code: this.activeDeviceCode,
+            grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          }),
         },
-        body: JSON.stringify({
-          client_id: this.config.clientId,
-          device_code: this.activeDeviceCode,
-          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        }),
-      },
-    );
+      );
+    } catch (fetchErr) {
+      this.cancelDeviceFlow();
+      return {
+        status: "error",
+        error: {
+          code: "network_error",
+          message:
+            fetchErr instanceof Error
+              ? fetchErr.message
+              : "Failed to connect to GitHub token endpoint.",
+        },
+      };
+    }
 
     if (!res.ok) {
+      this.cancelDeviceFlow();
       return {
         status: "error",
         error: { code: "http_failure", message: `HTTP error ${res.status}` },
       };
     }
 
-    const data = (await res.json()) as {
+    let data: {
       access_token?: string;
       token_type?: string;
       expires_in?: number;
@@ -245,6 +273,19 @@ export class GitHubAuthManager {
       error_description?: string;
       interval?: number;
     };
+
+    try {
+      data = (await res.json()) as typeof data;
+    } catch {
+      this.cancelDeviceFlow();
+      return {
+        status: "error",
+        error: {
+          code: "invalid_json",
+          message: "GitHub token endpoint returned invalid JSON.",
+        },
+      };
+    }
 
     if (data.error) {
       if (data.error === "authorization_pending") {
@@ -287,13 +328,13 @@ export class GitHubAuthManager {
       };
     }
 
-    if (!data.access_token || !data.refresh_token) {
+    if (!data.access_token) {
       this.cancelDeviceFlow();
       return {
         status: "error",
         error: {
           code: "invalid_response",
-          message: "Tokens missing from GitHub OAuth response.",
+          message: "Access token missing from GitHub OAuth response.",
         },
       };
     }
@@ -305,13 +346,21 @@ export class GitHubAuthManager {
       const cred: GitHubCredentialV1 = {
         schemaVersion: GITHUB_SCHEMA_VERSION,
         accessToken: data.access_token,
-        accessTokenExpiresAt: new Date(
-          now + (data.expires_in ?? 28800) * 1000,
-        ).toISOString(),
-        refreshToken: data.refresh_token,
-        refreshTokenExpiresAt: new Date(
-          now + (data.refresh_token_expires_in ?? 15768000) * 1000,
-        ).toISOString(),
+        ...(data.expires_in !== undefined
+          ? {
+              accessTokenExpiresAt: new Date(
+                now + data.expires_in * 1000,
+              ).toISOString(),
+            }
+          : {}),
+        ...(data.refresh_token
+          ? {
+              refreshToken: data.refresh_token,
+              refreshTokenExpiresAt: new Date(
+                now + (data.refresh_token_expires_in ?? 15768000) * 1000,
+              ).toISOString(),
+            }
+          : {}),
         tokenType: data.token_type ?? "bearer",
         userId: userProfile.id,
         userLogin: userProfile.login,
@@ -349,16 +398,27 @@ export class GitHubAuthManager {
     if (!cred) return null;
 
     const now = Date.now();
-    const accessExpiry = new Date(cred.accessTokenExpiresAt).getTime();
-    const refreshExpiry = new Date(cred.refreshTokenExpiresAt).getTime();
 
-    if (now >= refreshExpiry) {
+    if (
+      cred.refreshTokenExpiresAt &&
+      now >= new Date(cred.refreshTokenExpiresAt).getTime()
+    ) {
       return null;
     }
+
+    if (!cred.accessTokenExpiresAt) {
+      return cred.accessToken;
+    }
+
+    const accessExpiry = new Date(cred.accessTokenExpiresAt).getTime();
 
     // If access token is still fresh, return it
     if (now + BUFFER_EXPIRY_MS < accessExpiry) {
       return cred.accessToken;
+    }
+
+    if (!cred.refreshToken) {
+      return null;
     }
 
     // Otherwise, perform serialized refresh
@@ -380,7 +440,7 @@ export class GitHubAuthManager {
   private async performTokenRefresh(
     cred: GitHubCredentialV1,
   ): Promise<string | null> {
-    if (!this.config) return null;
+    if (!this.config || !cred.refreshToken) return null;
 
     try {
       const res = await this.fetchImpl(
@@ -412,7 +472,7 @@ export class GitHubAuthManager {
         error?: string;
       };
 
-      if (data.error || !data.access_token || !data.refresh_token) {
+      if (data.error || !data.access_token) {
         return null;
       }
 
@@ -420,13 +480,21 @@ export class GitHubAuthManager {
       const updatedCred: GitHubCredentialV1 = {
         ...cred,
         accessToken: data.access_token,
-        accessTokenExpiresAt: new Date(
-          now + (data.expires_in ?? 28800) * 1000,
-        ).toISOString(),
-        refreshToken: data.refresh_token,
-        refreshTokenExpiresAt: new Date(
-          now + (data.refresh_token_expires_in ?? 15768000) * 1000,
-        ).toISOString(),
+        ...(data.expires_in !== undefined
+          ? {
+              accessTokenExpiresAt: new Date(
+                now + data.expires_in * 1000,
+              ).toISOString(),
+            }
+          : {}),
+        ...(data.refresh_token
+          ? {
+              refreshToken: data.refresh_token,
+              refreshTokenExpiresAt: new Date(
+                now + (data.refresh_token_expires_in ?? 15768000) * 1000,
+              ).toISOString(),
+            }
+          : {}),
         tokenType: data.token_type ?? "bearer",
         updatedAt: new Date(now).toISOString(),
       };

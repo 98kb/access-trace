@@ -6,7 +6,7 @@ export class GitHubDiscoveryClient {
   private fetchImpl: typeof fetch;
 
   constructor(fetchImpl: typeof fetch = globalThis.fetch) {
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = (fetchImpl ?? globalThis.fetch).bind(globalThis);
   }
 
   /**
@@ -17,7 +17,7 @@ export class GitHubDiscoveryClient {
   ): Promise<GitHubRepositoryV1[]> {
     // 1. GET /user/installations
     const instRes = await this.fetchImpl(
-      "https://api.github.com/user/installations",
+      "https://api.github.com/user/installations?per_page=100",
       {
         method: "GET",
         headers: {
@@ -42,7 +42,7 @@ export class GitHubDiscoveryClient {
     // 2. Fetch repos for each installation
     for (const inst of installations) {
       const repoRes = await this.fetchImpl(
-        `https://api.github.com/user/installations/${inst.id}/repositories`,
+        `https://api.github.com/user/installations/${inst.id}/repositories?per_page=100`,
         {
           method: "GET",
           headers: {
@@ -90,7 +90,7 @@ export class GitHubDiscoveryClient {
     repo: string,
   ): Promise<GitHubLabelV1[]> {
     const res = await this.fetchImpl(
-      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/labels`,
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/labels?per_page=100`,
       {
         method: "GET",
         headers: {

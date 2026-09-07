@@ -492,6 +492,17 @@ export default defineBackground(() => {
               domainKey,
             };
           }
+          const token = await githubAuth.getValidAccessToken();
+          if (!token) {
+            return {
+              schemaVersion: SCHEMA_VERSION,
+              type: "github-check-issue-result",
+              ok: true,
+              existing: null,
+              mapped: false,
+              domainKey,
+            };
+          }
           const current = await state.read(tabId);
           const finding = current?.report?.findings.find(
             (item) => item.findingId === request.findingId,

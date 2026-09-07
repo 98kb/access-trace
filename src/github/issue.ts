@@ -39,7 +39,7 @@ export class GitHubIssueManager {
   private inFlightOperations = new Map<string, Promise<GitHubIssueResult>>();
 
   constructor(options: { fetch?: typeof fetch; storage: SimpleStorage }) {
-    this.fetchImpl = options.fetch ?? globalThis.fetch;
+    this.fetchImpl = (options.fetch ?? globalThis.fetch).bind(globalThis);
     this.storage = options.storage;
   }
 

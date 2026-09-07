@@ -128,7 +128,17 @@ process on your device; it does not mean that process is risk-free.
 
 ## Optional GitHub issue creation
 
-Create well-formed GitHub issues directly from deterministic accessibility findings in the side panel:
+Create well-formed GitHub issues directly from deterministic accessibility findings in the side panel.
+
+### Quick Setup Wizard
+
+Run the interactive step-by-step setup wizard to configure the GitHub App, build the extension, and map domains:
+
+```sh
+./scripts/setup-github-issues-wizard.sh
+```
+
+### Manual Setup Steps
 
 1. Register a GitHub App with **Metadata: read** and **Issues: read and write** permissions. Enable **Device Flow** and **Expiring user-to-server tokens**.
 2. Configure `VITE_GITHUB_APP_CLIENT_ID` in `.env` (using `.env.example` as a template) and run `pnpm build`.

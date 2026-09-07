@@ -23,14 +23,15 @@ export interface GitHubConnectionViewV1 {
   user: GitHubUserV1 | null;
   expiresAt: string | null;
   error: { code: string; message: string } | null;
+  installationUrl?: string | null;
 }
 
 export interface GitHubCredentialV1 {
   schemaVersion: typeof GITHUB_SCHEMA_VERSION;
   accessToken: string;
-  accessTokenExpiresAt: string;
-  refreshToken: string;
-  refreshTokenExpiresAt: string;
+  accessTokenExpiresAt?: string;
+  refreshToken?: string;
+  refreshTokenExpiresAt?: string;
   tokenType: string;
   userId: number;
   userLogin: string;
@@ -157,6 +158,10 @@ export function parseGitHubConnectionView(
     user,
     expiresAt: obj.expiresAt ? string(obj.expiresAt, "expiresAt") : null,
     error,
+    ...(typeof obj.installationUrl === "string" &&
+    obj.installationUrl.length > 0
+      ? { installationUrl: obj.installationUrl }
+      : {}),
   };
 }
 
@@ -170,15 +175,17 @@ export function parseGitHubCredential(value: unknown): GitHubCredentialV1 {
   return {
     schemaVersion: GITHUB_SCHEMA_VERSION,
     accessToken: string(obj.accessToken, "accessToken"),
-    accessTokenExpiresAt: string(
-      obj.accessTokenExpiresAt,
-      "accessTokenExpiresAt",
-    ),
-    refreshToken: string(obj.refreshToken, "refreshToken"),
-    refreshTokenExpiresAt: string(
-      obj.refreshTokenExpiresAt,
-      "refreshTokenExpiresAt",
-    ),
+    ...(typeof obj.accessTokenExpiresAt === "string" &&
+    obj.accessTokenExpiresAt.length > 0
+      ? { accessTokenExpiresAt: obj.accessTokenExpiresAt }
+      : {}),
+    ...(typeof obj.refreshToken === "string" && obj.refreshToken.length > 0
+      ? { refreshToken: obj.refreshToken }
+      : {}),
+    ...(typeof obj.refreshTokenExpiresAt === "string" &&
+    obj.refreshTokenExpiresAt.length > 0
+      ? { refreshTokenExpiresAt: obj.refreshTokenExpiresAt }
+      : {}),
     tokenType: string(obj.tokenType, "tokenType"),
     userId: number(obj.userId, "userId"),
     userLogin: string(obj.userLogin, "userLogin"),
