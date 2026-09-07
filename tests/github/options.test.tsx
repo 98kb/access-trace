@@ -1361,17 +1361,19 @@ describe("Options page at /integrations", () => {
       expect(dialogInstallLink).toHaveAttribute("target", "_blank");
       expect(dialogInstallLink).toHaveAttribute("rel", "noreferrer");
 
-      expect(
-        screen.getByRole("button", {
-          name: "I have installed it, Continue to Connect",
-        }),
-      ).toBeInTheDocument();
+      const confirmBtn = screen.getByRole("button", {
+        name: "I have installed it, Continue to Connect",
+      });
+      expect(confirmBtn).toBeInTheDocument();
+      expect(confirmBtn).toHaveFocus();
+
       expect(
         screen.getByRole("button", { name: "Cancel" }),
       ).toBeInTheDocument();
 
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(connectBtn).toHaveFocus();
     });
 
     it("proceeds to device flow when confirming inside the dialog", async () => {
