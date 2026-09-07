@@ -59,9 +59,55 @@ export default function OptionsApp({
   const [formLabelName, setFormLabelName] = useState<string>("");
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("Integrations settings ready.");
+  const [showConnectConfirm, setShowConnectConfirm] = useState(false);
 
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingReposRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const connectButtonRef = useRef<HTMLButtonElement | null>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!showConnectConfirm) return;
+
+    confirmButtonRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowConnectConfirm(false);
+        connectButtonRef.current?.focus();
+        return;
+      }
+
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) return;
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showConnectConfirm]);
 
   const loadRepositories = async () => {
     if (connection.state !== "connected" || !permissionGranted) return;
@@ -421,6 +467,16 @@ export default function OptionsApp({
     }
   };
 
+  const handleCloseConnectConfirm = () => {
+    setShowConnectConfirm(false);
+    connectButtonRef.current?.focus();
+  };
+
+  const handleConfirmConnect = () => {
+    setShowConnectConfirm(false);
+    void handleStartConnect();
+  };
+
   const handleDisconnect = async () => {
     try {
       await send({
@@ -428,6 +484,19 @@ export default function OptionsApp({
         type: "github-disconnect",
       });
       setNotice("Disconnected from GitHub.");
+      setConnection((prev) => ({
+        ...prev,
+        state: "disconnected",
+        user: null,
+        expiresAt: null,
+        error: null,
+      }));
+      setRepositories([]);
+      setRepoError(null);
+      setLabels([]);
+      setLabelError(null);
+      setDeviceFlow(null);
+      setShowConnectConfirm(false);
       void loadConnectionState();
     } catch {
       // ignore
@@ -647,18 +716,64 @@ export default function OptionsApp({
         {(connection.state === "disconnected" ||
           connection.state === "error") &&
           permissionGranted && (
-            <div className="connection-body">
-              <p>Connect a GitHub account via GitHub App device flow.</p>
+            <div className="connection-body onboarding-container">
               {connection.error && (
-                <p className="error-text">{connection.error.message}</p>
+                <div className="status-banner banner-warning" role="alert">
+                  <strong>Connection Error</strong>
+                  <p className="error-text">{connection.error.message}</p>
+                  <div className="error-actions">
+                    <button
+                      className="button secondary"
+                      type="button"
+                      onClick={() => void handleDisconnect()}
+                    >
+                      Disconnect GitHub
+                    </button>
+                  </div>
+                </div>
               )}
-              <button
-                className="button primary"
-                type="button"
-                onClick={() => void handleStartConnect()}
-              >
-                Connect GitHub
-              </button>
+
+              <div className="onboarding-steps">
+                <div className="onboarding-step">
+                  <div className="step-header">
+                    <span className="step-number">Step 1</span>
+                    <h3>Install GitHub App</h3>
+                  </div>
+                  <p className="step-desc">
+                    Repository access must be granted on GitHub before connecting.
+                    Install the GitHub App on your personal account or organization
+                    to choose which repositories can report issues.
+                  </p>
+                  <a
+                    className="button primary"
+                    href={resolveGitHubInstallationUrl(
+                      connection.installationUrl,
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Install GitHub App
+                  </a>
+                </div>
+
+                <div className="onboarding-step">
+                  <div className="step-header">
+                    <span className="step-number">Step 2</span>
+                    <h3>Connect GitHub Account</h3>
+                  </div>
+                  <p className="step-desc">
+                    Already installed? Connect GitHub to authorize Access Trace.
+                  </p>
+                  <button
+                    ref={connectButtonRef}
+                    className="button secondary"
+                    type="button"
+                    onClick={() => setShowConnectConfirm(true)}
+                  >
+                    Connect GitHub
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -741,7 +856,7 @@ export default function OptionsApp({
                 type="button"
                 onClick={() => void handleDisconnect()}
               >
-                Disconnect
+                Disconnect GitHub
               </button>
             </div>
           </div>
@@ -754,13 +869,22 @@ export default function OptionsApp({
               Your GitHub authorization has expired or was revoked. Please
               reconnect to restore issue creation.
             </p>
-            <button
-              className="button primary"
-              type="button"
-              onClick={() => void handleStartConnect()}
-            >
-              Reconnect GitHub
-            </button>
+            <div className="expired-actions">
+              <button
+                className="button primary"
+                type="button"
+                onClick={() => setShowConnectConfirm(true)}
+              >
+                Reconnect GitHub
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => void handleDisconnect()}
+              >
+                Disconnect GitHub
+              </button>
+            </div>
           </div>
         )}
       </section>
@@ -1131,6 +1255,58 @@ export default function OptionsApp({
           </>
         )}
       </section>
+
+      {showConnectConfirm && (
+        <div
+          className="modal-backdrop"
+          onClick={handleCloseConnectConfirm}
+          data-testid="modal-backdrop"
+        >
+          <div
+            ref={dialogRef}
+            className="modal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-install-dialog-title"
+            aria-describedby="confirm-install-dialog-desc"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="confirm-install-dialog-title">
+              Install GitHub App Before Connecting
+            </h3>
+            <p id="confirm-install-dialog-desc">
+              You must install the GitHub App on your personal account or organization
+              with repository access before authorizing. Authorizing before
+              installation causes GitHub to reject requests with a 401 Unauthorized error.
+            </p>
+            <div className="modal-actions">
+              <a
+                className="button secondary"
+                href={resolveGitHubInstallationUrl(connection.installationUrl)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Install GitHub App
+              </a>
+              <button
+                ref={confirmButtonRef}
+                className="button primary"
+                type="button"
+                onClick={handleConfirmConnect}
+              >
+                I have installed it, Continue to Connect
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={handleCloseConnectConfirm}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

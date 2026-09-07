@@ -161,7 +161,7 @@ describe("Options page at /integrations", () => {
     );
   });
 
-  it("starts device flow when clicking Connect GitHub in disconnected state", async () => {
+  it("starts device flow when clicking Connect GitHub and confirming in dialog", async () => {
     const send = vi
       .fn()
       .mockImplementation(
@@ -213,6 +213,11 @@ describe("Options page at /integrations", () => {
       name: "Connect GitHub",
     });
     await user.click(connectBtn);
+
+    const confirmBtn = screen.getByRole("button", {
+      name: "I have installed it, Continue to Connect",
+    });
+    await user.click(confirmBtn);
 
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -366,6 +371,11 @@ describe("Options page at /integrations", () => {
       name: "Connect GitHub",
     });
     await user.click(connectBtn);
+    await user.click(
+      screen.getByRole("button", {
+        name: "I have installed it, Continue to Connect",
+      }),
+    );
 
     await waitFor(() => {
       expect(screen.getByText("ABCD-1234")).toBeInTheDocument();
@@ -519,6 +529,11 @@ describe("Options page at /integrations", () => {
       name: "Connect GitHub",
     });
     await user.click(connectBtn);
+    await user.click(
+      screen.getByRole("button", {
+        name: "I have installed it, Continue to Connect",
+      }),
+    );
 
     await waitFor(() => {
       expect(screen.getByText("ABCD-1234")).toBeInTheDocument();
@@ -669,6 +684,11 @@ describe("Options page at /integrations", () => {
       name: "Connect GitHub",
     });
     await user.click(connectBtn);
+    await user.click(
+      screen.getByRole("button", {
+        name: "I have installed it, Continue to Connect",
+      }),
+    );
 
     await waitFor(() => {
       expect(screen.getByText("ABCD-1234")).toBeInTheDocument();
@@ -1197,6 +1217,572 @@ describe("Options page at /integrations", () => {
       expect(screen.getByLabelText("GitHub repository")).toBeInstanceOf(
         HTMLSelectElement,
       );
+    });
+  });
+
+  describe("Onboarding sequence and pre-connection confirmation dialog", () => {
+    it("renders Install GitHub App as primary call to action and Connect GitHub indicating prerequisite installation", async () => {
+      const send = vi
+        .fn()
+        .mockImplementation(
+          async (req: ExtensionRequest): Promise<ExtensionResponse> => {
+            if (req.type === "github-get-state") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-state-result",
+                ok: true,
+                connection: {
+                  schemaVersion: "1.0",
+                  state: "disconnected",
+                  user: null,
+                  expiresAt: null,
+                  error: null,
+                  installationUrl: "https://github.com/apps/access-trace",
+                },
+                permissionGranted: true,
+              };
+            }
+            if (req.type === "github-get-mappings") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-mappings-result",
+                ok: true,
+                mappings: [],
+              };
+            }
+            throw new Error(`Unexpected request: ${req.type}`);
+          },
+        );
+
+      render(<OptionsApp send={send} />);
+
+      const installLink = await screen.findByRole("link", {
+        name: "Install GitHub App",
+      });
+      expect(installLink).toBeInTheDocument();
+      expect(installLink).toHaveClass("primary");
+      expect(installLink).toHaveAttribute(
+        "href",
+        "https://github.com/apps/access-trace/installations/new",
+      );
+      expect(installLink).toHaveAttribute("target", "_blank");
+      expect(installLink).toHaveAttribute("rel", "noreferrer");
+
+      expect(
+        screen.getByText(
+          /Repository access must be granted on GitHub before connecting/i,
+        ),
+      ).toBeInTheDocument();
+
+      const connectBtn = screen.getByRole("button", {
+        name: "Connect GitHub",
+      });
+      expect(connectBtn).toBeInTheDocument();
+      expect(connectBtn).toHaveClass("secondary");
+      expect(
+        screen.getByText(/Already installed\? Connect GitHub/i),
+      ).toBeInTheDocument();
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("opens confirmation dialog explaining 401 installation requirement when clicking Connect GitHub", async () => {
+      const send = vi
+        .fn()
+        .mockImplementation(
+          async (req: ExtensionRequest): Promise<ExtensionResponse> => {
+            if (req.type === "github-get-state") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-state-result",
+                ok: true,
+                connection: {
+                  schemaVersion: "1.0",
+                  state: "disconnected",
+                  user: null,
+                  expiresAt: null,
+                  error: null,
+                  installationUrl: "https://github.com/apps/access-trace",
+                },
+                permissionGranted: true,
+              };
+            }
+            if (req.type === "github-get-mappings") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-mappings-result",
+                ok: true,
+                mappings: [],
+              };
+            }
+            throw new Error(`Unexpected request: ${req.type}`);
+          },
+        );
+
+      const user = userEvent.setup();
+      render(<OptionsApp send={send} />);
+
+      const connectBtn = await screen.findByRole("button", {
+        name: "Connect GitHub",
+      });
+      await user.click(connectBtn);
+
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toBeInTheDocument();
+      expect(dialog).toHaveAttribute("aria-modal", "true");
+      expect(dialog).toHaveAttribute(
+        "aria-labelledby",
+        "confirm-install-dialog-title",
+      );
+      expect(dialog).toHaveAttribute(
+        "aria-describedby",
+        "confirm-install-dialog-desc",
+      );
+
+      expect(
+        screen.getByRole("heading", {
+          name: "Install GitHub App Before Connecting",
+        }),
+      ).toBeInTheDocument();
+
+      expect(
+        screen.getByText(
+          "You must install the GitHub App on your personal account or organization with repository access before authorizing. Authorizing before installation causes GitHub to reject requests with a 401 Unauthorized error.",
+        ),
+      ).toBeInTheDocument();
+
+      const dialogInstallLink = screen.getAllByRole("link", {
+        name: "Install GitHub App",
+      })[1];
+      expect(dialogInstallLink).toHaveAttribute(
+        "href",
+        "https://github.com/apps/access-trace/installations/new",
+      );
+      expect(dialogInstallLink).toHaveAttribute("target", "_blank");
+      expect(dialogInstallLink).toHaveAttribute("rel", "noreferrer");
+
+      expect(
+        screen.getByRole("button", {
+          name: "I have installed it, Continue to Connect",
+        }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Cancel" }),
+      ).toBeInTheDocument();
+
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("proceeds to device flow when confirming inside the dialog", async () => {
+      const send = vi
+        .fn()
+        .mockImplementation(
+          async (req: ExtensionRequest): Promise<ExtensionResponse> => {
+            if (req.type === "github-get-state") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-state-result",
+                ok: true,
+                connection: {
+                  schemaVersion: "1.0",
+                  state: "disconnected",
+                  user: null,
+                  expiresAt: null,
+                  error: null,
+                },
+                permissionGranted: true,
+              };
+            }
+            if (req.type === "github-get-mappings") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-mappings-result",
+                ok: true,
+                mappings: [],
+              };
+            }
+            if (req.type === "github-start-device-flow") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-device-flow-start-result",
+                ok: true,
+                flow: {
+                  userCode: "ABCD-1234",
+                  verificationUri: "https://github.com/login/device",
+                  expiresIn: 900,
+                  interval: 5,
+                },
+              };
+            }
+            throw new Error(`Unexpected request: ${req.type}`);
+          },
+        );
+
+      const user = userEvent.setup();
+      render(<OptionsApp send={send} />);
+
+      const connectBtn = await screen.findByRole("button", {
+        name: "Connect GitHub",
+      });
+      await user.click(connectBtn);
+
+      const confirmBtn = screen.getByRole("button", {
+        name: "I have installed it, Continue to Connect",
+      });
+      await user.click(confirmBtn);
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "github-start-device-flow",
+        }),
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("ABCD-1234")).toBeInTheDocument();
+      });
+      expect(
+        screen.getByRole("link", { name: "Open GitHub Verification Page" }),
+      ).toHaveAttribute("href", "https://github.com/login/device");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("keeps user on disconnected view without starting device flow when canceled", async () => {
+      const send = vi
+        .fn()
+        .mockImplementation(
+          async (req: ExtensionRequest): Promise<ExtensionResponse> => {
+            if (req.type === "github-get-state") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-state-result",
+                ok: true,
+                connection: {
+                  schemaVersion: "1.0",
+                  state: "disconnected",
+                  user: null,
+                  expiresAt: null,
+                  error: null,
+                },
+                permissionGranted: true,
+              };
+            }
+            if (req.type === "github-get-mappings") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-mappings-result",
+                ok: true,
+                mappings: [],
+              };
+            }
+            throw new Error(`Unexpected request: ${req.type}`);
+          },
+        );
+
+      const user = userEvent.setup();
+      render(<OptionsApp send={send} />);
+
+      const connectBtn = await screen.findByRole("button", {
+        name: "Connect GitHub",
+      });
+      await user.click(connectBtn);
+
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+      await user.click(cancelBtn);
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "github-start-device-flow",
+        }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Connect GitHub" }),
+      ).toBeInTheDocument();
+    });
+
+    it("clicking Disconnect GitHub removes credentials and resets the view back to onboarding", async () => {
+      let connectionState: "connected" | "disconnected" = "connected";
+      const send = vi
+        .fn()
+        .mockImplementation(
+          async (req: ExtensionRequest): Promise<ExtensionResponse> => {
+            if (req.type === "github-get-state") {
+              if (connectionState === "connected") {
+                return {
+                  schemaVersion: SCHEMA_VERSION,
+                  type: "github-state-result",
+                  ok: true,
+                  connection: {
+                    schemaVersion: "1.0",
+                    state: "connected",
+                    user: { id: 1, login: "octocat", name: "Monalisa Octocat" },
+                    expiresAt: "2026-09-06T18:00:00.000Z",
+                    error: null,
+                  },
+                  permissionGranted: true,
+                };
+              }
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-state-result",
+                ok: true,
+                connection: {
+                  schemaVersion: "1.0",
+                  state: "disconnected",
+                  user: null,
+                  expiresAt: null,
+                  error: null,
+                },
+                permissionGranted: true,
+              };
+            }
+            if (req.type === "github-get-mappings") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-mappings-result",
+                ok: true,
+                mappings: [],
+              };
+            }
+            if (req.type === "github-list-repositories") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-repositories-result",
+                ok: true,
+                repositories: [
+                  {
+                    id: 101,
+                    owner: "acme",
+                    name: "web-app",
+                    fullName: "acme/web-app",
+                    htmlUrl: "https://github.com/acme/web-app",
+                    installationId: 99,
+                  },
+                ],
+              };
+            }
+            if (req.type === "github-disconnect") {
+              connectionState = "disconnected";
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-command-result",
+                ok: true,
+              };
+            }
+            throw new Error(`Unexpected request: ${req.type}`);
+          },
+        );
+
+      const user = userEvent.setup();
+      render(<OptionsApp send={send} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("@octocat")).toBeInTheDocument();
+      });
+
+      const disconnectBtn = screen.getByRole("button", {
+        name: "Disconnect GitHub",
+      });
+      expect(disconnectBtn).toBeInTheDocument();
+
+      await user.click(disconnectBtn);
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "github-disconnect",
+        }),
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("link", { name: "Install GitHub App" }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByRole("button", { name: "Connect GitHub" }),
+        ).toBeInTheDocument();
+      });
+      expect(screen.queryByText("@octocat")).not.toBeInTheDocument();
+    });
+
+    it("displays Disconnect GitHub in error state and calls handleDisconnect", async () => {
+      let stateToReturn: "error" | "disconnected" = "error";
+
+      const send = vi
+        .fn()
+        .mockImplementation(
+          async (req: ExtensionRequest): Promise<ExtensionResponse> => {
+            if (req.type === "github-get-state") {
+              if (stateToReturn === "error") {
+                return {
+                  schemaVersion: SCHEMA_VERSION,
+                  type: "github-state-result",
+                  ok: true,
+                  connection: {
+                    schemaVersion: "1.0",
+                    state: "error",
+                    user: null,
+                    expiresAt: null,
+                    error: {
+                      code: "unauthorized",
+                      message: "Bad credentials or installation missing",
+                    },
+                  },
+                  permissionGranted: true,
+                };
+              }
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-state-result",
+                ok: true,
+                connection: {
+                  schemaVersion: "1.0",
+                  state: "disconnected",
+                  user: null,
+                  expiresAt: null,
+                  error: null,
+                },
+                permissionGranted: true,
+              };
+            }
+            if (req.type === "github-get-mappings") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-mappings-result",
+                ok: true,
+                mappings: [],
+              };
+            }
+            if (req.type === "github-disconnect") {
+              stateToReturn = "disconnected";
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-command-result",
+                ok: true,
+              };
+            }
+            throw new Error(`Unexpected request: ${req.type}`);
+          },
+        );
+
+      const user = userEvent.setup();
+      render(<OptionsApp send={send} />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText("Bad credentials or installation missing"),
+        ).toBeInTheDocument();
+      });
+
+      const disconnectBtn = screen.getByRole("button", {
+        name: "Disconnect GitHub",
+      });
+      expect(disconnectBtn).toBeInTheDocument();
+
+      await user.click(disconnectBtn);
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "github-disconnect",
+        }),
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText("Bad credentials or installation missing"),
+        ).not.toBeInTheDocument();
+        expect(
+          screen.getByRole("link", { name: "Install GitHub App" }),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it("displays Disconnect GitHub in expired state and calls handleDisconnect", async () => {
+      let stateToReturn: "expired" | "disconnected" = "expired";
+
+      const send = vi
+        .fn()
+        .mockImplementation(
+          async (req: ExtensionRequest): Promise<ExtensionResponse> => {
+            if (req.type === "github-get-state") {
+              if (stateToReturn === "expired") {
+                return {
+                  schemaVersion: SCHEMA_VERSION,
+                  type: "github-state-result",
+                  ok: true,
+                  connection: {
+                    schemaVersion: "1.0",
+                    state: "expired",
+                    user: null,
+                    expiresAt: null,
+                    error: null,
+                  },
+                  permissionGranted: true,
+                };
+              }
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-state-result",
+                ok: true,
+                connection: {
+                  schemaVersion: "1.0",
+                  state: "disconnected",
+                  user: null,
+                  expiresAt: null,
+                  error: null,
+                },
+                permissionGranted: true,
+              };
+            }
+            if (req.type === "github-get-mappings") {
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-mappings-result",
+                ok: true,
+                mappings: [],
+              };
+            }
+            if (req.type === "github-disconnect") {
+              stateToReturn = "disconnected";
+              return {
+                schemaVersion: SCHEMA_VERSION,
+                type: "github-command-result",
+                ok: true,
+              };
+            }
+            throw new Error(`Unexpected request: ${req.type}`);
+          },
+        );
+
+      const user = userEvent.setup();
+      render(<OptionsApp send={send} />);
+
+      const reconnectBtn = await screen.findByRole("button", {
+        name: "Reconnect GitHub",
+      });
+      expect(reconnectBtn).toBeInTheDocument();
+
+      const disconnectBtn = screen.getByRole("button", {
+        name: "Disconnect GitHub",
+      });
+      expect(disconnectBtn).toBeInTheDocument();
+
+      await user.click(disconnectBtn);
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "github-disconnect",
+        }),
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("button", { name: "Reconnect GitHub" }),
+        ).not.toBeInTheDocument();
+        expect(
+          screen.getByRole("link", { name: "Install GitHub App" }),
+        ).toBeInTheDocument();
+      });
     });
   });
 });
